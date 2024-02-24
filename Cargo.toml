@@ -1,5 +1,5 @@
 [package]
-name = "pcap-reader"
+name = "pcap-converter"
 version = "0.2.0"
 edition = "2021"
 
