@@ -1,0 +1,17 @@
+[package]
+name = "pcap-reader"
+version = "0.2.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.69"
+clap = { version = "4.5.1", features = ["derive"] }
+etherparse = "0.14.0"
+pcap-parser = { version = "0.15.0", features = ["data"] }
+chrono = "0.4.34"
+#arrow2 = { version = "0.18.0", features = ["io_parquet"] }
+arrow2 = { version = "0.18.0", features = ["io_parquet", "io_parquet_compression"] }
+domain = "0.9.3"
+num-format = "0.4.4"
