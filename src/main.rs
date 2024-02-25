@@ -1,31 +1,30 @@
-use std::collections::HashMap;
-use std::fmt::{Debug};
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use clap::Parser;
 use etherparse::*;
+use pcap_parser::data::PacketData;
 use pcap_parser::*;
-use pcap_parser::data::{PacketData};
+use std::collections::HashMap;
+use std::fmt::Debug;
 use std::fs::File;
 use std::net::*;
 use std::path::Path;
 
 use arrow2::{
-    array::{Array, UInt32Array, UInt16Array, UInt8Array, Int64Array, Utf8Array},
+    array::{Array, Int64Array, UInt16Array, UInt32Array, UInt8Array, Utf8Array},
     chunk::Chunk,
-    datatypes::{Field, Schema, },
+    datatypes::{Field, Schema},
     io::parquet::write::{
         transverse, CompressionOptions, Encoding, FileWriter, RowGroupIterator, Version,
         WriteOptions,
     },
 };
 
-use arrow2::datatypes::DataType::{Timestamp, UInt8, UInt16, UInt32, Utf8};
+use arrow2::datatypes::DataType::{Timestamp, UInt16, UInt32, UInt8, Utf8};
 use arrow2::datatypes::TimeUnit::Microsecond;
 use etherparse::icmpv4::TYPE_DEST_UNREACH;
 
 use domain::base::*;
 use num_format::{Locale, ToFormattedString};
-
 
 /// Parse a PCAP file and detect whether source IP addresses are spoofed.
 #[derive(Parser, Debug)]
@@ -46,7 +45,6 @@ struct Args {
     printout: bool,
 }
 
-
 #[derive(Default, Debug, Clone)]
 struct PacketDetail {
     frame_time: Option<i64>,
@@ -64,7 +62,7 @@ struct PacketDetail {
     tcp_flags: Option<String>,
     tcp_srcport: Option<u16>,
     tcp_dstport: Option<u16>,
-//     Rest added to maintain compatibility with parquet files from tcpdump exports
+    //     Rest added to maintain compatibility with parquet files from tcpdump exports
     col_info: Option<String>,
     col_source: Option<String>,
     col_destination: Option<String>,
@@ -150,12 +148,14 @@ struct PcapDetails {
     cache_misses: i64,
 }
 
-
 fn create_fields() -> Vec<Field> {
-
     let mut fields: Vec<Field> = Vec::new();
 
-    fields.push(Field::new("frame_time", Timestamp(Microsecond, None).to_logical_type().clone(), true));
+    fields.push(Field::new(
+        "frame_time",
+        Timestamp(Microsecond, None).to_logical_type().clone(),
+        true,
+    ));
     fields.push(Field::new("frame_len", UInt32, true));
     fields.push(Field::new("eth_type", UInt16, true));
     fields.push(Field::new("ip_src", Utf8, true));
@@ -188,8 +188,12 @@ fn create_fields() -> Vec<Field> {
 }
 
 impl PcapDetails {
-
-    fn new(pcap_filename: &str, parquet_filename: &str, printout: bool, verbose: bool) -> Result<PcapDetails> {
+    fn new(
+        pcap_filename: &str,
+        parquet_filename: &str,
+        printout: bool,
+        verbose: bool,
+    ) -> Result<PcapDetails> {
         let pcap_file = Path::new(pcap_filename);
         let file_stem = pcap_file.file_name().unwrap();
 
@@ -198,7 +202,7 @@ impl PcapDetails {
             compression: CompressionOptions::Snappy,
             // compression: CompressionOptions::Uncompressed,
             version: Version::V2,
-            data_pagesize_limit: None,
+            data_pagesize_limit: Some(128*1024*1024),
         };
 
         let fields = create_fields();
@@ -208,12 +212,11 @@ impl PcapDetails {
         let file = File::create(parquet_filename)?;
         let writer = FileWriter::try_new(file, schema, options)?;
 
-
         let pcapdetails = PcapDetails {
             pcap_file: file_stem.to_str().unwrap().to_string(),
             pq_filewriter: writer,
             options: options,
-            fields : fields,
+            fields: fields,
             printout: printout,
             verbose: verbose,
             packet_detail: Default::default(),
@@ -230,7 +233,9 @@ impl PcapDetails {
     fn push(&mut self) {
         self.pack_cnt += 1;
 
-        if self.printout {eprintln!("Push packet {:#?}", self.packet_detail)}
+        if self.printout {
+            eprintln!("Push packet {:#?}", self.packet_detail)
+        }
 
         self.pack_buf.frame_time.push(self.packet_detail.frame_time);
         self.pack_buf.frame_len.push(self.packet_detail.frame_len);
@@ -239,26 +244,62 @@ impl PcapDetails {
         self.pack_buf.ip_dst.push(self.packet_detail.ip_dst.clone());
         self.pack_buf.ip_proto.push(self.packet_detail.ip_proto);
         self.pack_buf.ip_ttl.push(self.packet_detail.ip_ttl);
-        self.pack_buf.ip_frag_offset.push(self.packet_detail.ip_frag_offset);
+        self.pack_buf
+            .ip_frag_offset
+            .push(self.packet_detail.ip_frag_offset);
         self.pack_buf.icmp_type.push(self.packet_detail.icmp_type);
         self.pack_buf.udp_length.push(self.packet_detail.udp_length);
-        self.pack_buf.udp_srcport.push(self.packet_detail.udp_srcport);
-        self.pack_buf.udp_dstport.push(self.packet_detail.udp_dstport);
-        self.pack_buf.tcp_flags.push(self.packet_detail.tcp_flags.clone());
-        self.pack_buf.tcp_srcport.push(self.packet_detail.tcp_srcport.clone());
-        self.pack_buf.tcp_dstport.push(self.packet_detail.tcp_dstport.clone());
-        self.pack_buf.col_info.push(self.packet_detail.col_info.clone());
-        self.pack_buf.col_source.push(self.packet_detail.col_source.clone());
-        self.pack_buf.col_destination.push(self.packet_detail.col_destination.clone());
-        self.pack_buf.col_protocol.push(self.packet_detail.col_protocol.clone());
-        self.pack_buf.dns_qry_name.push(self.packet_detail.dns_qry_name.clone());
-        self.pack_buf.dns_qry_type.push(self.packet_detail.dns_qry_type);
-        self.pack_buf.http_request_uri.push(self.packet_detail.http_request_uri.clone());
-        self.pack_buf.http_host.push(self.packet_detail.http_host.clone());
-        self.pack_buf.http_request_method.push(self.packet_detail.http_request_method.clone());
-        self.pack_buf.http_user_agent.push(self.packet_detail.http_user_agent.clone());
-        self.pack_buf.http_file_data.push(self.packet_detail.http_file_data.clone());
-        self.pack_buf.ntp_priv_reqcpde.push(self.packet_detail.ntp_priv_reqcpde);
+        self.pack_buf
+            .udp_srcport
+            .push(self.packet_detail.udp_srcport);
+        self.pack_buf
+            .udp_dstport
+            .push(self.packet_detail.udp_dstport);
+        self.pack_buf
+            .tcp_flags
+            .push(self.packet_detail.tcp_flags.clone());
+        self.pack_buf
+            .tcp_srcport
+            .push(self.packet_detail.tcp_srcport.clone());
+        self.pack_buf
+            .tcp_dstport
+            .push(self.packet_detail.tcp_dstport.clone());
+        self.pack_buf
+            .col_info
+            .push(self.packet_detail.col_info.clone());
+        self.pack_buf
+            .col_source
+            .push(self.packet_detail.col_source.clone());
+        self.pack_buf
+            .col_destination
+            .push(self.packet_detail.col_destination.clone());
+        self.pack_buf
+            .col_protocol
+            .push(self.packet_detail.col_protocol.clone());
+        self.pack_buf
+            .dns_qry_name
+            .push(self.packet_detail.dns_qry_name.clone());
+        self.pack_buf
+            .dns_qry_type
+            .push(self.packet_detail.dns_qry_type);
+        self.pack_buf
+            .http_request_uri
+            .push(self.packet_detail.http_request_uri.clone());
+        self.pack_buf
+            .http_host
+            .push(self.packet_detail.http_host.clone());
+        self.pack_buf
+            .http_request_method
+            .push(self.packet_detail.http_request_method.clone());
+        self.pack_buf
+            .http_user_agent
+            .push(self.packet_detail.http_user_agent.clone());
+        self.pack_buf
+            .http_file_data
+            .push(self.packet_detail.http_file_data.clone());
+        self.pack_buf
+            .ntp_priv_reqcpde
+            .push(self.packet_detail.ntp_priv_reqcpde);
 
         self.pack_buf.pcap_file.push(Some(self.pcap_file.clone()));
 
@@ -270,7 +311,7 @@ impl PcapDetails {
         }
     }
 
-    fn close_parquet(&mut self)-> Result<()> {
+    fn close_parquet(&mut self) -> Result<()> {
         // Write out any remaining data
         self.flush_out();
         let _size = self.pq_filewriter.end(None)?;
@@ -278,7 +319,6 @@ impl PcapDetails {
     }
 
     fn write_chunk(&mut self, chunk: Chunk<Box<dyn Array>>) -> arrow2::error::Result<()> {
-
         let iter = vec![Ok(chunk)];
 
         let schema = Schema::from(self.fields.clone());
@@ -289,11 +329,8 @@ impl PcapDetails {
             .map(|f| transverse(&f.data_type, |_| Encoding::Plain))
             .collect();
 
-        let row_groups = RowGroupIterator::try_new(
-            iter.into_iter(),
-            &schema,
-            self.options,
-            encodings)?;
+        let row_groups =
+            RowGroupIterator::try_new(iter.into_iter(), &schema, self.options, encodings)?;
 
         for group in row_groups {
             self.pq_filewriter.write(group?)?;
@@ -302,18 +339,17 @@ impl PcapDetails {
         Ok(())
     }
 
-
     fn flush_out(&mut self) {
-
         if self.verbose {
-            eprint!("\rPackets processed: {0} (Errors: {1}, Fragmentation misses: {2})",
+            eprint!(
+                "\rPackets processed: {0} (Errors: {1}, Fragmentation misses: {2})",
                 self.pack_cnt.to_formatted_string(&Locale::en),
                 self.errors.to_formatted_string(&Locale::en),
                 self.cache_misses.to_formatted_string(&Locale::en),
             );
         }
 
-        let frame_time= Int64Array::from(&self.pack_buf.frame_time);
+        let frame_time = Int64Array::from(&self.pack_buf.frame_time);
         let frame_len = UInt32Array::from(&self.pack_buf.frame_len);
         let eth_type = UInt16Array::from(&self.pack_buf.eth_type);
         let ip_src = Utf8Array::<i32>::from(&self.pack_buf.ip_src);
@@ -371,20 +407,17 @@ impl PcapDetails {
             http_user_agent.boxed(),
             http_file_data.boxed(),
             ntp_priv_reqcode.boxed(),
-
             pcap_file.boxed(),
         ]);
 
         // eprint!("{:?}", schema);
         match self.write_chunk(chunk) {
-            Err(e) => eprintln!("{}",e),
+            Err(e) => eprintln!("{}", e),
             Ok(_) => (),
         }
-
     }
 
     fn analyze_packet_headers(&mut self, pkt_headers: PacketHeaders) {
-
         let mut ip_id: u16 = 0;
         // eprintln!("{:#?}", pkt_headers);
         let EtherType(et) = pkt_headers.link.unwrap().ether_type;
@@ -400,7 +433,8 @@ impl PcapDetails {
                 self.packet_detail.ip_src = Some(Ipv4Addr::from(ip.source).to_string());
                 self.packet_detail.ip_dst = Some(Ipv4Addr::from(ip.destination).to_string());
                 self.packet_detail.col_source = Some(Ipv4Addr::from(ip.source).to_string());
-                self.packet_detail.col_destination = Some(Ipv4Addr::from(ip.destination).to_string());
+                self.packet_detail.col_destination =
+                    Some(Ipv4Addr::from(ip.destination).to_string());
                 self.packet_detail.ip_ttl = Some(ip.time_to_live);
                 self.packet_detail.ip_proto = Some(u8::from(ip.protocol));
 
@@ -415,7 +449,7 @@ impl PcapDetails {
                             self.packet_detail.udp_length = Some(ip.total_len);
                             self.packet_detail.dns_qry_type = Some(cache.dns_qry_type);
                             self.packet_detail.dns_qry_name = Some(cache.dns_qry_name.clone());
-                        },
+                        }
                         None => {
                             // cache miss
                             // eprintln!("cache miss");
@@ -423,7 +457,7 @@ impl PcapDetails {
                         }
                     }
                 }
-            },
+            }
             Some(NetHeaders::Ipv6(ip, _)) => {
                 // May be replaced by transport or application protocol later on
                 self.packet_detail.col_protocol = Some("IPv6".to_string());
@@ -432,10 +466,11 @@ impl PcapDetails {
                 self.packet_detail.ip_src = Some(Ipv6Addr::from(ip.source).to_string());
                 self.packet_detail.ip_dst = Some(Ipv6Addr::from(ip.destination).to_string());
                 self.packet_detail.col_source = Some(Ipv6Addr::from(ip.source).to_string());
-                self.packet_detail.col_destination = Some(Ipv6Addr::from(ip.destination).to_string());
+                self.packet_detail.col_destination =
+                    Some(Ipv6Addr::from(ip.destination).to_string());
                 self.packet_detail.ip_ttl = Some(ip.hop_limit);
                 self.packet_detail.ip_proto = Some(u8::from(ip.next_header));
-            },
+            }
             _ => (),
         }
 
@@ -474,46 +509,69 @@ impl PcapDetails {
                                         question.qname().to_string()
                                     };
                                     self.packet_detail.dns_qry_name = Some(name.clone());
-                                    self.packet_detail.dns_qry_type = Some(question.qtype().to_int());
+                                    self.packet_detail.dns_qry_type =
+                                        Some(question.qtype().to_int());
 
-                                    let fc= self.frag_pack.entry(ip_id).or_insert(FragmentCache::new());
+                                    let fc =
+                                        self.frag_pack.entry(ip_id).or_insert(FragmentCache::new());
                                     (*fc).dns_qry_name = name;
                                     (*fc).dns_qry_type = question.qtype().to_int();
-
-                                },
+                                }
                                 _ => {
                                     self.errors += 1;
-                                },
+                                }
                             }
-                        },
+                        }
                         Err(_e) => {
-                            if self.printout {eprintln!("{}", _e); }
+                            if self.printout {
+                                eprintln!("{}", _e);
+                            }
                             self.errors += 1;
-                        },
+                        }
                     }
                 }
-            },
+            }
 
             Some(TransportHeader::Tcp(tcp)) => {
-                if self.printout {eprintln!("TCP: {:#?}",tcp)};
+                if self.printout {
+                    eprintln!("TCP: {:#?}", tcp)
+                };
                 // May be replaced by transport protocol later on
                 self.packet_detail.col_protocol = Some("TCP".to_string());
 
                 self.packet_detail.tcp_srcport = Some(tcp.source_port);
                 self.packet_detail.tcp_dstport = Some(tcp.destination_port);
                 let mut flags = String::from("........");
-                if tcp.fin {flags.replace_range(7..8,"F")};
-                if tcp.syn {flags.replace_range(6..7,"S")};
-                if tcp.rst {flags.replace_range(5..6,"R")};
-                if tcp.psh {flags.replace_range(4..5,"P")};
-                if tcp.ack {flags.replace_range(3..4,"A")};
-                if tcp.urg {flags.replace_range(1..3,"U")};
-                if tcp.ece {flags.replace_range(1..2,"E")};
-                if tcp.cwr {flags.replace_range(0..1,"C")};
+                if tcp.fin {
+                    flags.replace_range(7..8, "F")
+                };
+                if tcp.syn {
+                    flags.replace_range(6..7, "S")
+                };
+                if tcp.rst {
+                    flags.replace_range(5..6, "R")
+                };
+                if tcp.psh {
+                    flags.replace_range(4..5, "P")
+                };
+                if tcp.ack {
+                    flags.replace_range(3..4, "A")
+                };
+                if tcp.urg {
+                    flags.replace_range(1..3, "U")
+                };
+                if tcp.ece {
+                    flags.replace_range(1..2, "E")
+                };
+                if tcp.cwr {
+                    flags.replace_range(0..1, "C")
+                };
                 self.packet_detail.tcp_flags = Some(flags);
-            },
+            }
             Some(TransportHeader::Icmpv4(icmp)) => {
-                if self.printout {eprintln!("ICMPv4: {:?}",icmp)};
+                if self.printout {
+                    eprintln!("ICMPv4: {:?}", icmp)
+                };
                 // May be replaced by transport or application protocol later on
                 self.packet_detail.col_protocol = Some("ICMP".to_string());
 
@@ -531,46 +589,63 @@ impl PcapDetails {
                                     // eprintln!("UDP: {:?}", udp);
                                     self.packet_detail.udp_srcport = Some(udp.source_port);
                                     self.packet_detail.udp_dstport = Some(udp.destination_port);
-                                },
+                                }
                                 Some(TransportHeader::Tcp(tcp)) => {
                                     // eprintln!("TCP: {:#?}", tcp);
                                     self.packet_detail.tcp_srcport = Some(tcp.source_port);
                                     self.packet_detail.tcp_dstport = Some(tcp.destination_port);
                                     let mut flags = String::from("........");
-                                    if tcp.fin { flags.replace_range(7..8, "F") };
-                                    if tcp.syn { flags.replace_range(6..7, "S") };
-                                    if tcp.rst { flags.replace_range(5..6, "R") };
-                                    if tcp.psh { flags.replace_range(4..5, "P") };
-                                    if tcp.ack { flags.replace_range(3..4, "A") };
-                                    if tcp.urg { flags.replace_range(1..3, "U") };
-                                    if tcp.ece { flags.replace_range(1..2, "E") };
-                                    if tcp.cwr { flags.replace_range(0..1, "C") };
+                                    if tcp.fin {
+                                        flags.replace_range(7..8, "F")
+                                    };
+                                    if tcp.syn {
+                                        flags.replace_range(6..7, "S")
+                                    };
+                                    if tcp.rst {
+                                        flags.replace_range(5..6, "R")
+                                    };
+                                    if tcp.psh {
+                                        flags.replace_range(4..5, "P")
+                                    };
+                                    if tcp.ack {
+                                        flags.replace_range(3..4, "A")
+                                    };
+                                    if tcp.urg {
+                                        flags.replace_range(1..3, "U")
+                                    };
+                                    if tcp.ece {
+                                        flags.replace_range(1..2, "E")
+                                    };
+                                    if tcp.cwr {
+                                        flags.replace_range(0..1, "C")
+                                    };
                                     self.packet_detail.tcp_flags = Some(flags);
-                                },
+                                }
                                 _ => (),
                             }
-                        },
+                        }
                         Err(_) => (),
                     }
                 }
-            },
+            }
             Some(TransportHeader::Icmpv6(icmp)) => {
-                if self.printout {eprintln!("ICMPv6: {:#?}",icmp)};
+                if self.printout {
+                    eprintln!("ICMPv6: {:#?}", icmp)
+                };
                 // self.packet_detail.icmp_type = Some(u8::from(icmp.icmp_type));
-            },
+            }
             _ => (),
         }
-
     }
-
 
     fn analyze_packet(&mut self, pkt_data: PacketData) -> Result<()> {
         match pkt_data {
             PacketData::L2(eth_data) => {
                 self.analyze_packet_headers(PacketHeaders::from_ethernet_slice(eth_data)?)
-            },
-            PacketData::L3(_, ip_data) => self.analyze_packet_headers(
-                    PacketHeaders::from_ip_slice(ip_data)?),
+            }
+            PacketData::L3(_, ip_data) => {
+                self.analyze_packet_headers(PacketHeaders::from_ip_slice(ip_data)?)
+            }
             _ => todo!(),
         };
 
@@ -589,27 +664,34 @@ fn main() -> Result<()> {
 
     let file = File::open(&args.file)?;
     let mut reader = create_reader(65536, file)?;
+    let mut consecutive_errors = 0;
 
     let mut num_blocks = 0;
 
-    let mut linktype = Linktype::ETHERNET;  // Legacy PCAP files
-    let mut if_linktypes = Vec::new();      // PCAP-NG files
+    let mut linktype = Linktype::ETHERNET; // Legacy PCAP files
+    let mut if_linktypes = Vec::new(); // PCAP-NG files
     let mut if_tsresol: u8 = 6;
-    let mut consecutive_errors = 0;
 
-    let mut pcapdetails: PcapDetails = PcapDetails::new(&args.file,&args.out, args.printout, args.verbose)?;
+    let mut pcapdetails: PcapDetails =
+        PcapDetails::new(&args.file, &args.out, args.printout, args.verbose)?;
 
     loop {
-        if args.printout { eprintln!("********************* {} ****************************", num_blocks) }
+        if args.printout {
+            eprintln!(
+                "********************* {} ****************************",
+                num_blocks
+            )
+        }
         match reader.next() {
             Ok((offset, block)) => {
                 num_blocks += 1;
                 match block {
                     PcapBlockOwned::LegacyHeader(hdr) => {
                         linktype = hdr.network;
-                    },
+                    }
                     PcapBlockOwned::Legacy(b) => {
-                        let tsusec: i64 = i64::from(b.ts_sec)*i64::pow(10, 6) + i64::from(b.ts_usec);
+                        let tsusec: i64 =
+                            i64::from(b.ts_sec) * i64::pow(10, 6) + i64::from(b.ts_usec);
                         // let ndt = NaiveDateTime::from_timestamp_micros(tsusec);
                         pcapdetails.packet_detail.frame_time = Some(tsusec);
                         pcapdetails.packet_detail.frame_len = Some(b.origlen);
@@ -619,29 +701,29 @@ fn main() -> Result<()> {
                         //     eprintln!("{:?}", b);
                         //     eprintln!("---------------------------------------------")
                         // }
-                        let pkt_data = pcap_parser::data::get_packetdata(
-                            b.data,
-                            linktype,
-                            b.caplen as usize
-                        ).context("Legacy PCAP Error get_packetdata")?;
+                        let pkt_data =
+                            pcap_parser::data::get_packetdata(b.data, linktype, b.caplen as usize)
+                                .context("Legacy PCAP Error get_packetdata")?;
                         pcapdetails.analyze_packet(pkt_data)?;
-                    },
+                    }
                     PcapBlockOwned::NG(Block::SectionHeader(ref _shb)) => {
                         if_linktypes = Vec::new();
-                    },
+                    }
                     PcapBlockOwned::NG(Block::InterfaceDescription(ref idb)) => {
                         if_linktypes.push(idb.linktype);
                         if_tsresol = idb.if_tsresol;
-                    },
+                    }
                     PcapBlockOwned::NG(Block::EnhancedPacket(ref epb)) => {
                         assert!((epb.if_id as usize) < if_linktypes.len());
                         // let linktype = if_linktypes[epb.if_id as usize];
 
-                        let ts_pkt: i64 = i64::from(epb.ts_high)*i64::pow(2, 32) + i64::from(epb.ts_high);
-                        let ts_res: i64 = i64::from(ts_pkt) * i64::pow(10, 9 - u32::from(if_tsresol));
+                        let ts_pkt: i64 =
+                            i64::from(epb.ts_high) * i64::pow(2, 32) + i64::from(epb.ts_high);
+                        let ts_res: i64 =
+                            i64::from(ts_pkt) * i64::pow(10, 9 - u32::from(if_tsresol));
                         // let ndt = NaiveDateTime::from_timestamp_nanos(ts_res);
                         // convert to microseconds
-                        pcapdetails.packet_detail.frame_time = Some(ts_res/1000);
+                        pcapdetails.packet_detail.frame_time = Some(ts_res / 1000);
                         pcapdetails.packet_detail.frame_len = Some(epb.caplen);
                         // if args.printout {
                         //     eprintln!("NG-EP: Analyze packet data: linktype: {}, len: {}",linktype, epb.caplen);
@@ -650,36 +732,34 @@ fn main() -> Result<()> {
                         let pkt_data = pcap_parser::data::get_packetdata(
                             epb.data,
                             linktype,
-                            epb.caplen as usize
-                        ).context("PCAP-NG EnhancedPacket Error get_packetdata")?;
+                            epb.caplen as usize,
+                        )
+                        .context("PCAP-NG EnhancedPacket Error get_packetdata")?;
                         pcapdetails.analyze_packet(pkt_data)?;
                         // println!("Analyze packet data: data: {:#?}",pkt_data);
-                    },
+                    }
                     PcapBlockOwned::NG(Block::SimplePacket(ref spb)) => {
                         assert!(if_linktypes.len() > 0);
                         let linktype = if_linktypes[0];
                         let blen = (spb.block_len1 - 16) as usize;
                         if args.printout {
-                            println!("NG-SP: Analyze packet data: linktype: {}",linktype);
+                            println!("NG-SP: Analyze packet data: linktype: {}", linktype);
                         }
-                        let pkt_data = pcap_parser::data::get_packetdata(
-                            spb.data,
-                            linktype,
-                            blen
-                        ).context("PCAP-NG SimplePacket Error get_packetdata")?;
+                        let pkt_data = pcap_parser::data::get_packetdata(spb.data, linktype, blen)
+                            .context("PCAP-NG SimplePacket Error get_packetdata")?;
                         pcapdetails.analyze_packet(pkt_data)?;
                         // println!("Analyze packet data: data: {:#?}",pkt_data);
-                    },
+                    }
                     PcapBlockOwned::NG(block) => {
                         if args.printout {
                             eprintln!("unsupported block: {:#?}", block);
                         }
-                    },
+                    }
                 }
 
                 reader.consume(offset);
                 consecutive_errors = 0;
-            },
+            }
             Err(PcapError::Eof) => break,
             Err(PcapError::Incomplete(_)) => {
                 // If the last packet is not complete, the reader might get stuck in a loop.
@@ -689,7 +769,7 @@ fn main() -> Result<()> {
                     break;
                 }
                 reader.refill().unwrap();
-            },
+            }
             Err(e) => panic!("Error reading file: {:?}", e),
         }
 
