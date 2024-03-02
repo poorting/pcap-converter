@@ -39,11 +39,11 @@ impl StatsWriter {
         let fields = StatsWriter::create_fields();
         let schema = Schema::new(fields.clone());
         let props = WriterProperties::builder()
-        .set_writer_version(WriterVersion::PARQUET_1_0)
+        .set_writer_version(WriterVersion::PARQUET_2_0)
         .set_encoding(Encoding::PLAIN)
-        .set_column_encoding(ColumnPath::from("col1"), Encoding::DELTA_BINARY_PACKED)
         .set_compression(Compression::SNAPPY)
         .build();
+    // .set_column_encoding(ColumnPath::from("col1"), Encoding::DELTA_BINARY_PACKED)
     
         let file = File::create(filename).unwrap();
 
@@ -119,7 +119,7 @@ impl StatsWriter {
                 Some(cache) => {
                     packet.udp_srcport = cache.udp_srcport;
                     packet.udp_dstport = cache.udp_dstport;
-                    packet.udp_length = Some(cache.ip_total_len);
+                    packet.udp_length =  cache.udp_length;
                     packet.dns_qry_type = cache.dns_qry_type;
                     packet.dns_qry_name = cache.dns_qry_name.clone();
                 }

@@ -350,7 +350,7 @@ fn main() -> Result<()> {
     }
 
     statswriter.close_parquet();
-    statswriter.writer.close();
+    statswriter.writer.close()?;
  
     eprintln!();
 
