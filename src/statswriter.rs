@@ -113,13 +113,15 @@ impl StatsWriter {
 
         if packet.is_first_fragment() {
             self.frag_cache.entry(ip_id).or_insert(packet.clone());
-        } else if packet.is_fragment() {
+        }
+        
+        if packet.is_fragment() {
             // See if we have a match for this fragment
             match self.frag_cache.get(&ip_id) {
                 Some(cache) => {
                     packet.udp_srcport = cache.udp_srcport;
                     packet.udp_dstport = cache.udp_dstport;
-                    packet.udp_length =  cache.udp_length;
+                    packet.udp_length =  Some(cache.ip_total_len);
                     packet.dns_qry_type = cache.dns_qry_type;
                     packet.dns_qry_name = cache.dns_qry_name.clone();
                 }
