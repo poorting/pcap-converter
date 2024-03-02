@@ -26,11 +26,20 @@ pub struct StatsWriter {
     schema: Schema,
     pub writer: ArrowWriter<std::fs::File>,
     packets: Vec<PacketStats>,
-    frag_cache: HashMap<u16, PacketStats>,
+    frag_cache: HashMap<u16, FragmentCache>,
     packet_count: i64,
     cache_misses: i64,
     verbose: bool,
  }
+
+ #[derive(Debug)]
+ struct FragmentCache {
+    srcport: Option<u16>,
+    dstport: Option<u16>,
+    dns_qry_name: Option<String>,
+    dns_qry_type: Option<u16>,
+    ip_total_len: u16,
+}
 
 impl StatsWriter {
     pub fn new(filename: &str, pcap_file: &str, verbose: bool) -> Result<StatsWriter, Error> {
@@ -112,15 +121,24 @@ impl StatsWriter {
         let ip_id = packet.ip_id.unwrap_or_default();
 
         if packet.is_first_fragment() {
-            self.frag_cache.entry(ip_id).or_insert(packet.clone());
+            // self.frag_cache.entry(ip_id).or_insert(packet.clone());
+            let cache = FragmentCache {
+                srcport: packet.udp_srcport,
+                dstport: packet.udp_dstport,
+                dns_qry_name: packet.dns_qry_name.clone(),
+                dns_qry_type: packet.dns_qry_type,
+                ip_total_len: packet.ip_total_len,
+            };
+            self.frag_cache.entry(ip_id).or_insert(cache);
+            
         }
         
         if packet.is_fragment() {
             // See if we have a match for this fragment
             match self.frag_cache.get(&ip_id) {
                 Some(cache) => {
-                    packet.udp_srcport = cache.udp_srcport;
-                    packet.udp_dstport = cache.udp_dstport;
+                    packet.udp_srcport = cache.srcport;
+                    packet.udp_dstport = cache.dstport;
                     packet.udp_length =  Some(cache.ip_total_len);
                     packet.dns_qry_type = cache.dns_qry_type;
                     packet.dns_qry_name = cache.dns_qry_name.clone();
