@@ -1,6 +1,5 @@
 use std::{fmt::Debug, sync::Arc};
 use std::path::Path;
-use std::collections::HashMap;
 use std::fs::File;
 use crate::packetstats::*;
 use anyhow::Error;
@@ -11,7 +10,6 @@ use arrow::datatypes::DataType::*;
 use parquet::{
     basic::{Compression, Encoding},
     file::properties::*,
-    schema::types::ColumnPath,
     arrow::ArrowWriter,
 };
 
@@ -26,20 +24,12 @@ pub struct StatsWriter {
     schema: Schema,
     pub writer: ArrowWriter<std::fs::File>,
     packets: Vec<PacketStats>,
-    frag_cache: HashMap<u16, FragmentCache>,
+    // frag_cache: HashMap<u16, FragmentCache>,
     packet_count: i64,
     cache_misses: i64,
     verbose: bool,
  }
 
- #[derive(Debug)]
- struct FragmentCache {
-    srcport: Option<u16>,
-    dstport: Option<u16>,
-    dns_qry_name: Option<String>,
-    dns_qry_type: Option<u16>,
-    ip_total_len: u16,
-}
 
 impl StatsWriter {
     pub fn new(filename: &str, pcap_file: &str, verbose: bool) -> Result<StatsWriter, Error> {
@@ -67,7 +57,7 @@ impl StatsWriter {
                 schema: schema,
                 writer: writer,
                 packets: Vec::new(),
-                frag_cache: HashMap::new(),
+                // frag_cache: HashMap::new(),
                 packet_count: 0,
                 cache_misses: 0,
                 verbose: verbose,
@@ -115,41 +105,9 @@ impl StatsWriter {
         fields
     }
     
-    pub fn push(&mut self, mut packet: PacketStats) {
+    pub fn push(&mut self, packet: PacketStats) {
 
-        // See if this is a first fragment
-        let ip_id = packet.ip_id.unwrap_or_default();
-
-        if packet.is_first_fragment() {
-            // self.frag_cache.entry(ip_id).or_insert(packet.clone());
-            let cache = FragmentCache {
-                srcport: packet.udp_srcport,
-                dstport: packet.udp_dstport,
-                dns_qry_name: packet.dns_qry_name.clone(),
-                dns_qry_type: packet.dns_qry_type,
-                ip_total_len: packet.ip_total_len,
-            };
-            self.frag_cache.entry(ip_id).or_insert(cache);
-            
-        }
-        
-        if packet.is_fragment() {
-            // See if we have a match for this fragment
-            match self.frag_cache.get(&ip_id) {
-                Some(cache) => {
-                    packet.udp_srcport = cache.srcport;
-                    packet.udp_dstport = cache.dstport;
-                    packet.udp_length =  Some(cache.ip_total_len);
-                    packet.dns_qry_type = cache.dns_qry_type;
-                    packet.dns_qry_name = cache.dns_qry_name.clone();
-                }
-                None => {
-                    // cache miss
-                    self.cache_misses += 1;
-                }
-            }
-        }
-
+        self.cache_misses += packet.cache_miss;
         self.packets.push(packet);
         self.packet_count += 1;
 
@@ -247,7 +205,7 @@ impl StatsWriter {
  
     pub fn close_parquet(&mut self) {
         self.flush();
-        self.writer.flush();
+        let _ = self.writer.flush();
     }
 
 }

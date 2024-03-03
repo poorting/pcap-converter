@@ -1,13 +1,21 @@
+use std::collections::HashMap;
 use std::fmt::Debug;
 use anyhow::Error;
-use arrow2::offset;
 use pcap_parser::data::PacketData;
 use etherparse::*;
 use etherparse::icmpv4::TYPE_DEST_UNREACH;
-use pcap_parser::nom::Err;
 use std::net::*;
 use domain::base::*;
 
+
+#[derive(Debug, Default)]
+pub struct FragmentCache {
+   pub srcport: u16,
+   pub dstport: u16,
+   pub dns_qry_name: String,
+   pub dns_qry_type: u16,
+   pub ip_total_len: u16,
+}
 
 #[derive(Default, Debug, Clone)]
 pub struct PacketStats {
@@ -40,7 +48,8 @@ pub struct PacketStats {
     pub http_file_data: Option<String>,
     pub ntp_priv_reqcpde: Option<u8>,
     pub ip_total_len: u16,
-    more_fragments: bool,
+    pub more_fragments: bool,
+    pub cache_miss: i64,
 }
 
 impl PacketStats {
@@ -103,13 +112,13 @@ impl PacketStats {
     }
 
 
-    pub fn analyze_packet(&mut self, pkt_data: PacketData) -> Result<(),Error> {
+    pub fn analyze_packet(&mut self, pkt_data: PacketData, cache: &mut HashMap<u16, FragmentCache>) -> Result<(),Error> {
         match pkt_data {
             PacketData::L2(eth_data) => {
-                self.analyze_packet_headers(PacketHeaders::from_ethernet_slice(eth_data)?);
+                self.analyze_packet_headers(PacketHeaders::from_ethernet_slice(eth_data)?, cache);
             }
             PacketData::L3(_, ip_data) => {
-                self.analyze_packet_headers(PacketHeaders::from_ip_slice(ip_data)?);
+                self.analyze_packet_headers(PacketHeaders::from_ip_slice(ip_data)?, cache);
             }
             _ => todo!(),
         };
@@ -118,7 +127,7 @@ impl PacketStats {
     }
 
 
-    fn analyze_packet_headers(&mut self, pkt_headers: PacketHeaders) {
+    fn analyze_packet_headers(&mut self, pkt_headers: PacketHeaders, cache: &mut HashMap<u16, FragmentCache>) {
         let EtherType(et) = pkt_headers.link.unwrap().ether_type;
         self.eth_type = Some(et);
         match pkt_headers.net {
@@ -140,6 +149,22 @@ impl PacketStats {
                 let frag_offset = u16::from(ip.fragment_offset);
                 self.more_fragments = ip.more_fragments;
                 self.ip_frag_offset = Some(frag_offset);
+                if u16::from(ip.fragment_offset) > 0 {
+                    match cache.get(&ip.identification) {
+                        Some(cache) => {
+                            self.udp_srcport = Some(cache.srcport);
+                            self.udp_dstport = Some(cache.dstport);
+                            self.udp_length = Some(ip.total_len);
+                            self.dns_qry_type = Some(cache.dns_qry_type);
+                            self.dns_qry_name = Some(cache.dns_qry_name.clone());
+                        }
+                        None => {
+                            // cache miss
+                            // eprintln!("cache miss");
+                            self.cache_miss += 1;
+                        }
+                    }
+                }
             }
             Some(NetHeaders::Ipv6(ip, _)) => {
                 // May be replaced by transport or application protocol later on
@@ -166,6 +191,15 @@ impl PacketStats {
                 self.udp_dstport = Some(udp.destination_port);
                 self.udp_length = Some(udp.length);
 
+                let ports: FragmentCache = FragmentCache {
+                    srcport: udp.source_port,
+                    dstport: udp.destination_port,
+                    dns_qry_type: 0,
+                    dns_qry_name: "".to_string(),
+                    ip_total_len: self.ip_total_len,
+                };
+                cache.entry(self.ip_id.unwrap()).or_insert(ports);
+
                 if udp.source_port == 53 || udp.destination_port == 53 {
                     self.col_protocol = Some("DNS".to_string());
                     match Message::from_octets(&pkt_headers.payload.slice()) {
@@ -179,6 +213,10 @@ impl PacketStats {
                                     };
                                     self.dns_qry_name = Some(name.clone());
                                     self.dns_qry_type = Some(question.qtype().to_int());
+                                    let fc =
+                                        cache.entry(self.ip_id.unwrap()).or_insert(Default::default());
+                                    (*fc).dns_qry_name = name;
+                                    (*fc).dns_qry_type = question.qtype().to_int();
                                 }
                                 _ => ()
                             }
@@ -221,7 +259,7 @@ impl PacketStats {
                                     // eprintln!("TCP: {:#?}", tcp);
                                     self.tcp_srcport = Some(tcp.source_port);
                                     self.tcp_dstport = Some(tcp.destination_port);
-                                    let mut flags = self.tcp_flags_as_string(tcp);
+                                    let flags = self.tcp_flags_as_string(tcp);
                                     self.tcp_flags = Some(flags);
                                 }
                                 _ => (),
@@ -231,10 +269,10 @@ impl PacketStats {
                     }
                 }
             }
-            Some(TransportHeader::Icmpv6(icmp)) => {
-                // eprintln!("ICMPv6: {:#?}", icmp)
-                // self.packet_detail.icmp_type = Some(u8::from(icmp.icmp_type));
-            }
+            // Some(TransportHeader::Icmpv6(icmp)) => {
+            //     // eprintln!("ICMPv6: {:#?}", icmp)
+            //     // self.icmp_type = Some(u8::from(icmp.icmp_type));
+            // }
             _ => (),
         }
     }
