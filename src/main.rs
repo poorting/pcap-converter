@@ -37,15 +37,6 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     let mut cache = HashMap::new();
-    // let test1 = PacketStats::new();
-
-    // test.set_ip_src("127.0.0.1".to_string());
-    // test.set_frame_time(100);
-    // println!("{:#?}", test);
-    // test.copy_from_no_frame(&test1);
-    // println!("{:#?}", test);
- 
-    // std::process::exit(0);
 
 
     let file = File::open(&args.file)?;
@@ -56,8 +47,6 @@ fn main() -> Result<()> {
     let mut if_linktypes = Vec::new(); // PCAP-NG files
     let mut if_tsresol: u8 = 6;
 
-    // let mut pcapdetails: PcapDetails =
-    //     PcapDetails::new(&args.file, &args.out, args.printout, args.verbose)?;
     let mut statswriter: StatsWriter = StatsWriter::new(&args.out, &args.file, args.verbose)?;
 
     loop {

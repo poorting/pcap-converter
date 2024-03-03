@@ -50,6 +50,7 @@ pub struct PacketStats {
     pub ip_total_len: u16,
     pub more_fragments: bool,
     pub cache_miss: i64,
+    pub errors: i64,
 }
 
 impl PacketStats {
@@ -222,7 +223,8 @@ impl PacketStats {
                             }
                         }
                         Err(_e) => {
-                            eprintln!("{}", _e);
+                            // eprintln!("{}", _e);
+                            self.errors += 1;
                         }
                     }
                 }
@@ -265,7 +267,7 @@ impl PacketStats {
                                 _ => (),
                             }
                         }
-                        Err(_) => (),
+                        Err(_) => {self.errors += 1; },
                     }
                 }
             }

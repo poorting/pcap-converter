@@ -27,6 +27,7 @@ pub struct StatsWriter {
     // frag_cache: HashMap<u16, FragmentCache>,
     packet_count: i64,
     cache_misses: i64,
+    errors: i64,
     verbose: bool,
  }
 
@@ -60,6 +61,7 @@ impl StatsWriter {
                 // frag_cache: HashMap::new(),
                 packet_count: 0,
                 cache_misses: 0,
+                errors: 0,
                 verbose: verbose,
             };
     
@@ -108,6 +110,7 @@ impl StatsWriter {
     pub fn push(&mut self, packet: PacketStats) {
 
         self.cache_misses += packet.cache_miss;
+        self.errors += packet.errors;
         self.packets.push(packet);
         self.packet_count += 1;
 
@@ -197,8 +200,9 @@ impl StatsWriter {
         self.packets = Vec::new();
 
         if self.verbose {
-            eprint!("\rPackets: {} Cache misses: {}", 
+            eprint!("\rPackets: {} Errors: {} Cache misses: {}", 
                 self.packet_count.to_formatted_string(&Locale::en), 
+                self.errors.to_formatted_string(&Locale::en),
                 self.cache_misses.to_formatted_string(&Locale::en));
         }
     }
