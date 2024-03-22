@@ -6,6 +6,7 @@ use etherparse::*;
 use etherparse::icmpv4::TYPE_DEST_UNREACH;
 use std::net::*;
 use domain::base::*;
+// use ntp_parser::*;
 
 
 #[derive(Debug, Default)]
@@ -199,7 +200,12 @@ impl PacketStats {
                     dns_qry_name: "".to_string(),
                     ip_total_len: self.ip_total_len,
                 };
-                cache.entry(self.ip_id.unwrap()).or_insert(ports);
+                match self.ip_id {
+                    Some(ip_id) => {
+                        cache.entry(ip_id).or_insert(ports);
+                    },
+                    None => (),
+                }
 
                 if udp.source_port == 53 || udp.destination_port == 53 {
                     self.col_protocol = Some("DNS".to_string());
@@ -214,10 +220,14 @@ impl PacketStats {
                                     };
                                     self.dns_qry_name = Some(name.clone());
                                     self.dns_qry_type = Some(question.qtype().to_int());
-                                    let fc =
-                                        cache.entry(self.ip_id.unwrap()).or_insert(Default::default());
-                                    (*fc).dns_qry_name = name;
-                                    (*fc).dns_qry_type = question.qtype().to_int();
+                                    match self.ip_id {
+                                        Some(_ip_id) => {
+                                            let fc = cache.entry(self.ip_id.unwrap()).or_insert(Default::default());
+                                            (*fc).dns_qry_name = name;
+                                            (*fc).dns_qry_type = question.qtype().to_int();
+                                        },
+                                        None => (),
+                                    }
                                 }
                                 _ => ()
                             }
@@ -228,6 +238,21 @@ impl PacketStats {
                         }
                     }
                 }
+
+                if udp.source_port == 123 || udp.destination_port == 123 {
+                    self.col_protocol = Some("NTP".to_string());
+
+                    match ntp_parser::parse_ntp(&pkt_headers.payload.slice()) {
+                        Ok(ntp) => {
+                            eprintln!("{:?}", ntp);
+                            // if 
+                        },
+                        Err(_e) => {
+                            // eprintln!("{:?}", _e);
+                        },
+                  
+                    }
+                }       
             }
 
             Some(TransportHeader::Tcp(tcp)) => {

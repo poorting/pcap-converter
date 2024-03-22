@@ -1,6 +1,6 @@
 [package]
 name = "pcap-converter"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -16,3 +16,5 @@ domain = "0.9.3"
 num-format = "0.4.4"
 arrow = "50.0.0"
 parquet = "50.0.0"
+crossbeam = "0.8.4"
+ntp-parser = "0.6.0"

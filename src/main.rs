@@ -1,10 +1,9 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use pcap_parser::*;
-use std::collections::HashMap;
+use std::{collections::HashMap};
 use std::fmt::Debug;
 use std::fs::File;
-
 use packetstats::*;
 use statswriter::*;
 
@@ -27,17 +26,12 @@ struct Args {
     verbose: bool,
 }
 
-
-
-// ****************************************************************************************************** //
-// ****************************************************************************************************** //
 // ****************************************************************************************************** //
 
 fn main() -> Result<()> {
     let args = Args::parse();
 
     let mut cache = HashMap::new();
-
 
     let file = File::open(&args.file)?;
     let mut reader = create_reader(65536*1024, file)?;
@@ -68,7 +62,9 @@ fn main() -> Result<()> {
                             pcap_parser::data::get_packetdata(b.data, linktype, b.caplen as usize)
                                 .context("Legacy PCAP Error get_packetdata")?;
 
+                        // eprintln!("{:?}", pkt_data.clone());
                         packet_stats.analyze_packet(pkt_data, &mut cache)?;
+                        // pkt_data.clone_into(target)
                         statswriter.push(packet_stats);
                     }
                     PcapBlockOwned::NG(Block::SectionHeader(ref _shb)) => {
@@ -123,10 +119,6 @@ fn main() -> Result<()> {
             }
             Err(e) => panic!("Error reading file: {:?}", e),
         }
-
-        // if num_blocks > 100 {
-        //     break;
-        // }
     }
 
     statswriter.close_parquet();
