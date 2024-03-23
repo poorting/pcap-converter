@@ -147,7 +147,7 @@ impl StatsWriter {
         let http_request_method = GenericStringArray::<i32>::from(self.packets.iter().map(|p| p.http_request_method.clone()).collect::<Vec<Option<String>>>());
         let http_user_agent = GenericStringArray::<i32>::from(self.packets.iter().map(|p| p.http_user_agent.clone()).collect::<Vec<Option<String>>>());
         let http_file_data = GenericStringArray::<i32>::from(self.packets.iter().map(|p| p.http_file_data.clone()).collect::<Vec<Option<String>>>());
-        let nttp_priv_reqcode = UInt8Array::from(self.packets.iter().map(|p| p.ntp_priv_reqcpde).collect::<Vec<Option<u8>>>());
+        let ntp_priv_reqcode = UInt8Array::from(self.packets.iter().map(|p| p.ntp_priv_reqcode).collect::<Vec<Option<u8>>>());
         let pcap_file = GenericStringArray::<i32>::from(vec![self.pcap_file.clone(); self.packets.len()]);
         
 
@@ -180,7 +180,7 @@ impl StatsWriter {
                 Arc::new(http_request_method),
                 Arc::new(http_user_agent),
                 Arc::new(http_file_data),
-                Arc::new(nttp_priv_reqcode),
+                Arc::new(ntp_priv_reqcode),
                 Arc::new(pcap_file),
                 ]
         ).unwrap();

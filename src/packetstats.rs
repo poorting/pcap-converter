@@ -47,7 +47,7 @@ pub struct PacketStats {
     pub http_request_method: Option<String>,
     pub http_user_agent: Option<String>,
     pub http_file_data: Option<String>,
-    pub ntp_priv_reqcpde: Option<u8>,
+    pub ntp_priv_reqcode: Option<u8>,
     pub ip_total_len: u16,
     pub more_fragments: bool,
     pub cache_miss: i64,
@@ -151,12 +151,13 @@ impl PacketStats {
                 let frag_offset = u16::from(ip.fragment_offset);
                 self.more_fragments = ip.more_fragments;
                 self.ip_frag_offset = Some(frag_offset);
-                if u16::from(ip.fragment_offset) > 0 {
-                    match cache.get(&ip.identification) {
+                // if u16::from(ip.fragment_offset) > 0 {
+                if frag_offset > 0 {
+                        match cache.get(&ip.identification) {
                         Some(cache) => {
                             self.udp_srcport = Some(cache.srcport);
                             self.udp_dstport = Some(cache.dstport);
-                            self.udp_length = Some(ip.total_len);
+                            // self.udp_length = Some(ip.total_len);
                             self.dns_qry_type = Some(cache.dns_qry_type);
                             self.dns_qry_name = Some(cache.dns_qry_name.clone());
                         }
@@ -168,6 +169,7 @@ impl PacketStats {
                     }
                 }
             }
+
             Some(NetHeaders::Ipv6(ip, _)) => {
                 // May be replaced by transport or application protocol later on
                 self.col_protocol = Some("IPv6".to_string());
@@ -241,6 +243,7 @@ impl PacketStats {
 
                 if udp.source_port == 123 || udp.destination_port == 123 {
                     self.col_protocol = Some("NTP".to_string());
+                    // eprintln!("==> {:?}", &pkt_headers.payload.slice());
 
                     match ntp_parser::parse_ntp(&pkt_headers.payload.slice()) {
                         Ok(ntp) => {
@@ -249,6 +252,14 @@ impl PacketStats {
                         },
                         Err(_e) => {
                             // eprintln!("{:?}", _e);
+                            let i = pkt_headers.payload.slice();
+                            // Is it a V2 NTP packet?
+                            if (i[0] >> 3) & 0b111 == 2 {
+                                // Yes, simply take the request code from the 4th byte
+                                self.ntp_priv_reqcode = Some(i[3]);
+                            } else {
+                                self.errors += 1;
+                            }
                         },
                   
                     }
