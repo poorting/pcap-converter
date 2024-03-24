@@ -77,7 +77,7 @@ fn main() -> Result<()> {
                     PcapBlockOwned::NG(Block::EnhancedPacket(ref epb)) => {
                         assert!((epb.if_id as usize) < if_linktypes.len());
                         let ts_pkt: i64 =
-                            i64::from(epb.ts_high) * i64::pow(2, 32) + i64::from(epb.ts_high);
+                            i64::from(epb.ts_high) * i64::pow(2, 32) + i64::from(epb.ts_low);
                         let ts_res: i64 =
                             i64::from(ts_pkt) * i64::pow(10, 9 - u32::from(if_tsresol));
                         packet_stats.frame_time = Some(ts_res / 1000);
