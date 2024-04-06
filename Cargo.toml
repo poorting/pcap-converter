@@ -8,13 +8,11 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.69"
 clap = { version = "4.5.1", features = ["derive"] }
-etherparse = "0.14.0"
+etherparse = "0.14.3"
 pcap-parser = { version = "0.15.0", features = ["data"] }
 chrono = "0.4.34"
-arrow2 = { version = "0.18.0", features = ["io_parquet", "io_parquet_compression"] }
 domain = "0.9.3"
 num-format = "0.4.4"
 arrow = "50.0.0"
 parquet = "50.0.0"
-crossbeam = "0.8.4"
 ntp-parser = "0.6.0"
