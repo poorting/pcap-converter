@@ -130,8 +130,10 @@ impl PacketStats {
 
 
     fn analyze_packet_headers(&mut self, pkt_headers: PacketHeaders, cache: &mut HashMap<u16, FragmentCache>) {
+
         let EtherType(et) = pkt_headers.link.unwrap().ether_type;
         self.eth_type = Some(et);
+
         match pkt_headers.net {
             Some(NetHeaders::Ipv4(ip, _)) => {
                 // May be replaced by transport or application protocol later on
@@ -151,7 +153,7 @@ impl PacketStats {
                 let frag_offset = u16::from(ip.fragment_offset);
                 self.more_fragments = ip.more_fragments;
                 self.ip_frag_offset = Some(frag_offset);
-                // if u16::from(ip.fragment_offset) > 0 {
+
                 if frag_offset > 0 {
                         match cache.get(&ip.identification) {
                         Some(cache) => {
@@ -307,11 +309,7 @@ impl PacketStats {
                     }
                 }
             }
-            // Some(TransportHeader::Icmpv6(icmp)) => {
-            //     // eprintln!("ICMPv6: {:#?}", icmp)
-            //     // self.icmp_type = Some(u8::from(icmp.icmp_type));
-            // }
-            _ => (),
+            _ => ()
         }
     }
 
