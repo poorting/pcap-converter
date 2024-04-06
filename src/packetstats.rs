@@ -54,6 +54,68 @@ pub struct PacketStats {
     pub errors: i64,
 }
 
+
+fn read_transport(
+    ip_payload: IpPayloadSlice,
+) -> Result<(Option<TransportHeader>, PayloadSlice), err::tcp::HeaderSliceError> {
+    // helper function to set the len source in len errors
+    use etherparse::ip_number::*;
+    use err::tcp::HeaderSliceError::*;
+    use etherparse::err::LenError;
+
+    let add_len_source = |mut len_error: LenError| -> err::tcp::HeaderSliceError {
+        // only change the len source if the lower layer has not set it
+        if LenSource::Slice == len_error.len_source {
+            len_error.len_source = ip_payload.len_source;
+        }
+        Len(len_error)
+    };
+    match ip_payload.ip_number {
+        ICMP => Icmpv4Slice::from_slice(ip_payload.payload)
+            .map_err(add_len_source)
+            .map(|value| {
+                (
+                    Some(TransportHeader::Icmpv4(value.header())),
+                    PayloadSlice::Icmpv4(value.payload()),
+                )
+            }),
+        IPV6_ICMP => Icmpv6Slice::from_slice(ip_payload.payload)
+            .map_err(add_len_source)
+            .map(|value| {
+                (
+                    Some(TransportHeader::Icmpv6(value.header())),
+                    PayloadSlice::Icmpv6(value.payload()),
+                )
+            }),
+        UDP => UdpHeader::from_slice(ip_payload.payload)
+            .map_err(add_len_source)
+            .map(|value| {
+                (
+                    Some(TransportHeader::Udp(value.0)),
+                    PayloadSlice::Udp(value.1),
+                )
+            }),
+        TCP => TcpHeader::from_slice(ip_payload.payload)
+            .map_err(|err| match err {
+                Len(err) => add_len_source(err),
+                Content(err) => Content(err),
+            })
+            .map(|value| {
+                (
+                    Some(TransportHeader::Tcp(value.0)),
+                    PayloadSlice::Tcp(value.1),
+                )
+            }),
+        _ => Err(Len(LenError {
+            required_len: TcpHeader::MIN_LEN,
+            len: 0,
+            len_source: LenSource::Slice,
+            layer: err::Layer::TcpHeader,
+            layer_start_offset: 0,
+        })),
+}
+}
+
 impl PacketStats {
     pub fn new() -> PacketStats {
         // return Default::default()
@@ -131,11 +193,14 @@ impl PacketStats {
 
     fn analyze_packet_headers(&mut self, pkt_headers: PacketHeaders, cache: &mut HashMap<u16, FragmentCache>) {
 
-        let EtherType(et) = pkt_headers.link.unwrap().ether_type;
+        let EtherType(et) = pkt_headers.link.clone().unwrap().ether_type;
         self.eth_type = Some(et);
 
+        let mut transport_header: Option<TransportHeader> = pkt_headers.transport.clone();
+        let mut transport_payload: PayloadSlice = pkt_headers.payload.clone();
+
         match pkt_headers.net {
-            Some(NetHeaders::Ipv4(ip, _)) => {
+            Some(NetHeaders::Ipv4(ref ip, _)) => {
                 // May be replaced by transport or application protocol later on
                 self.col_protocol = Some("IPv4".to_string());
                 // self.frame_len = Some(ip.total_len as u32);
@@ -169,10 +234,29 @@ impl PacketStats {
                             self.cache_miss += 1;
                         }
                     }
+                } else {
+                    // etherparse will not try to parse a first fragment
+                    // Hence this approach.
+                    // Only do this with fragmented packets!
+                    if ip.more_fragments {
+                        match pkt_headers.payload {
+                            PayloadSlice::Ip(ip_payload) => {
+                                let result = read_transport(ip_payload);
+                                match result {
+                                    Ok((transport, payload)) => {
+                                        transport_header = transport;
+                                        transport_payload = payload;
+                                    }
+                                    _ => (),
+                                }
+                            }
+                            _ => ()
+                        }
+                    }
                 }
             }
 
-            Some(NetHeaders::Ipv6(ip, _)) => {
+            Some(NetHeaders::Ipv6(ref ip, _)) => {
                 // May be replaced by transport or application protocol later on
                 self.col_protocol = Some("IPv6".to_string());
                 // self.frame_len = Some((ip.payload_length+ip.header_len() as u16) as u32);
@@ -187,7 +271,8 @@ impl PacketStats {
             _ => (),
         }
 
-        match pkt_headers.transport {
+        // match pkt_headers.transport {
+        match transport_header {
             Some(TransportHeader::Udp(udp)) => {
 
                 // May be replaced by transport protocol later on
@@ -213,8 +298,9 @@ impl PacketStats {
 
                 if udp.source_port == 53 || udp.destination_port == 53 {
                     self.col_protocol = Some("DNS".to_string());
-                    match Message::from_octets(&pkt_headers.payload.slice()) {
-                        Ok(dns) => {
+                    // match Message::from_octets(&pkt_headers.payload.slice()) {
+                        match Message::from_octets(&transport_payload.slice()) {
+                            Ok(dns) => {
                             match dns.first_question() {
                                 Some(question) => {
                                     let name = if question.qname().is_root() {
@@ -247,14 +333,15 @@ impl PacketStats {
                     self.col_protocol = Some("NTP".to_string());
                     // eprintln!("==> {:?}", &pkt_headers.payload.slice());
 
-                    match ntp_parser::parse_ntp(&pkt_headers.payload.slice()) {
-                        Ok(ntp) => {
-                            eprintln!("{:?}", ntp);
-                            // if 
+                    // match ntp_parser::parse_ntp(&pkt_headers.payload.slice()) {
+                        match ntp_parser::parse_ntp(&transport_payload.slice()) {
+                            Ok(ntp) => {
+                            // eprintln!("{:?}", ntp);
                         },
                         Err(_e) => {
                             // eprintln!("{:?}", _e);
-                            let i = pkt_headers.payload.slice();
+                            // let i = pkt_headers.payload.slice();
+                            let i = transport_payload.slice();
                             // Is it a V2 NTP packet?
                             if (i[0] >> 3) & 0b111 == 2 {
                                 // Yes, simply take the request code from the 4th byte
@@ -277,6 +364,7 @@ impl PacketStats {
                 let flags = self.tcp_flags_as_string(tcp);
                 self.tcp_flags = Some(flags);
             }
+
             Some(TransportHeader::Icmpv4(icmp)) => {
                 // May be replaced by transport or application protocol later on
                 self.col_protocol = Some("ICMP".to_string());
@@ -286,7 +374,8 @@ impl PacketStats {
                 if bytes[0] == TYPE_DEST_UNREACH {
                     // Payload contains header of the original packet
                     // eprintln!("{:?}", pkt_headers.payload);
-                    match PacketHeaders::from_ip_slice(pkt_headers.payload.slice()) {
+                    // match PacketHeaders::from_ip_slice(pkt_headers.payload.slice()) {
+                    match PacketHeaders::from_ip_slice(transport_payload.slice()) {
                         Ok(icmp_ph) => {
                             // eprintln!("{:#?}", icmp_ph);
                             match icmp_ph.transport {
@@ -309,6 +398,16 @@ impl PacketStats {
                     }
                 }
             }
+            // None => {
+            //     eprintln!("{:?}", pkt_headers.payload);
+            //     match pkt_headers.payload {
+            //         PayloadSlice::Ip(ip_payload) => {
+            //             let result = read_transport(ip_payload);
+            //             eprintln!("{:?}", result);
+            //         }
+            //         _ => ()
+            //     }
+            // }
             _ => ()
         }
     }
