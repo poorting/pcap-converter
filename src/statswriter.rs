@@ -114,7 +114,7 @@ impl StatsWriter {
         self.packets.push(packet);
         self.packet_count += 1;
 
-        if self.packets.len() >= 50_000 {
+        if self.packets.len() >= 10_000 {
             self.write_batch();
         }
 
