@@ -70,6 +70,7 @@ fn read_transport(
         }
         Len(len_error)
     };
+
     match ip_payload.ip_number {
         ICMP => Icmpv4Slice::from_slice(ip_payload.payload)
             .map_err(add_len_source)
@@ -184,7 +185,7 @@ impl PacketStats {
             PacketData::L3(_, ip_data) => {
                 self.analyze_packet_headers(PacketHeaders::from_ip_slice(ip_data)?, cache);
             }
-            _ => todo!(),
+            _ => unimplemented!(),
         };
 
         Ok(())
@@ -298,9 +299,8 @@ impl PacketStats {
 
                 if udp.source_port == 53 || udp.destination_port == 53 {
                     self.col_protocol = Some("DNS".to_string());
-                    // match Message::from_octets(&pkt_headers.payload.slice()) {
-                        match Message::from_octets(&transport_payload.slice()) {
-                            Ok(dns) => {
+                    match Message::from_octets(&transport_payload.slice()) {
+                        Ok(dns) => {
                             match dns.first_question() {
                                 Some(question) => {
                                     let name = if question.qname().is_root() {
@@ -322,6 +322,7 @@ impl PacketStats {
                                 _ => ()
                             }
                         }
+
                         Err(_e) => {
                             // eprintln!("{}", _e);
                             self.errors += 1;
@@ -333,10 +334,10 @@ impl PacketStats {
                     self.col_protocol = Some("NTP".to_string());
                     // eprintln!("==> {:?}", &pkt_headers.payload.slice());
 
-                    // match ntp_parser::parse_ntp(&pkt_headers.payload.slice()) {
                         match ntp_parser::parse_ntp(&transport_payload.slice()) {
-                            Ok(ntp) => {
+                            Ok(_ntp) => {
                             // eprintln!("{:?}", ntp);
+                            todo!();
                         },
                         Err(_e) => {
                             // eprintln!("{:?}", _e);
@@ -374,7 +375,6 @@ impl PacketStats {
                 if bytes[0] == TYPE_DEST_UNREACH {
                     // Payload contains header of the original packet
                     // eprintln!("{:?}", pkt_headers.payload);
-                    // match PacketHeaders::from_ip_slice(pkt_headers.payload.slice()) {
                     match PacketHeaders::from_ip_slice(transport_payload.slice()) {
                         Ok(icmp_ph) => {
                             // eprintln!("{:#?}", icmp_ph);
@@ -398,16 +398,10 @@ impl PacketStats {
                     }
                 }
             }
-            // None => {
-            //     eprintln!("{:?}", pkt_headers.payload);
-            //     match pkt_headers.payload {
-            //         PayloadSlice::Ip(ip_payload) => {
-            //             let result = read_transport(ip_payload);
-            //             eprintln!("{:?}", result);
-            //         }
-            //         _ => ()
-            //     }
-            // }
+
+
+            Some(TransportHeader::Icmpv6(_icmp)) => todo!(),
+
             _ => ()
         }
     }
