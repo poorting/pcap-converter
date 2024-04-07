@@ -337,7 +337,7 @@ impl PacketStats {
                         match ntp_parser::parse_ntp(&transport_payload.slice()) {
                             Ok(_ntp) => {
                             // eprintln!("{:?}", ntp);
-                            todo!();
+                            // todo!();
                         },
                         Err(_e) => {
                             // eprintln!("{:?}", _e);
@@ -400,7 +400,7 @@ impl PacketStats {
             }
 
 
-            Some(TransportHeader::Icmpv6(_icmp)) => todo!(),
+            Some(TransportHeader::Icmpv6(_icmp)) => (),
 
             _ => ()
         }
