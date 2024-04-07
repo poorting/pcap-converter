@@ -16,6 +16,7 @@ pub struct FragmentCache {
    pub dns_qry_name: String,
    pub dns_qry_type: u16,
    pub ip_total_len: u16,
+   pub ntp_priv_reqcode: u8,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -228,6 +229,7 @@ impl PacketStats {
                             // self.udp_length = Some(ip.total_len);
                             self.dns_qry_type = Some(cache.dns_qry_type);
                             self.dns_qry_name = Some(cache.dns_qry_name.clone());
+                            self.ntp_priv_reqcode = Some(cache.ntp_priv_reqcode);
                         }
                         None => {
                             // cache miss
@@ -289,6 +291,7 @@ impl PacketStats {
                     dns_qry_type: 0,
                     dns_qry_name: "".to_string(),
                     ip_total_len: self.ip_total_len,
+                    ntp_priv_reqcode: 0,
                 };
                 match self.ip_id {
                     Some(ip_id) => {
@@ -347,7 +350,14 @@ impl PacketStats {
                             if (i[0] >> 3) & 0b111 == 2 {
                                 // Yes, simply take the request code from the 4th byte
                                 self.ntp_priv_reqcode = Some(i[3]);
-                            } else {
+                                match self.ip_id {
+                                    Some(_ip_id) => {
+                                        let fc = cache.entry(self.ip_id.unwrap()).or_insert(Default::default());
+                                        (*fc).ntp_priv_reqcode = i[3];
+                                    },
+                                    None => (),
+                                }
+                        } else {
                                 self.errors += 1;
                             }
                         },
