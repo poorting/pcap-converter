@@ -181,12 +181,35 @@ impl PacketStats {
     pub fn analyze_packet(&mut self, pkt_data: PacketData, cache: &mut HashMap<u16, FragmentCache>) -> Result<(),Error> {
         match pkt_data {
             PacketData::L2(eth_data) => {
-                self.analyze_packet_headers(PacketHeaders::from_ethernet_slice(eth_data)?, cache);
+                let result = PacketHeaders::from_ethernet_slice(eth_data);
+                // self.analyze_packet_headers(PacketHeaders::from_ethernet_slice(eth_data)?, cache);
+                match result {
+                    Ok(pkt_headers) => {
+                        self.analyze_packet_headers(pkt_headers, cache);
+                    }
+
+                    Err(_slice_error) => {
+                        // eprintln!("{:?}", slice_error);
+                        self.errors += 1;
+                    }
+
+                }
             }
             PacketData::L3(_, ip_data) => {
-                self.analyze_packet_headers(PacketHeaders::from_ip_slice(ip_data)?, cache);
+                let result = PacketHeaders::from_ip_slice(ip_data);
+                // self.analyze_packet_headers(PacketHeaders::from_ip_slice(ip_data)?, cache);
+                match result {
+                    Ok(pkt_headers) => {
+                        self.analyze_packet_headers(pkt_headers, cache);
+                    }
+
+                    Err(_slice_error) => {
+                        // eprintln!("{:?}", slice_error);
+                        self.errors += 1;
+                    }
+                }
             }
-            _ => unimplemented!(),
+            _ => (),
         };
 
         Ok(())
