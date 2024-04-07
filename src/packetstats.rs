@@ -230,7 +230,13 @@ impl PacketStats {
                             self.dns_qry_type = Some(cache.dns_qry_type);
                             self.dns_qry_name = Some(cache.dns_qry_name.clone());
                             self.ntp_priv_reqcode = Some(cache.ntp_priv_reqcode);
-                        }
+                            if cache.srcport == 123 || cache.dstport == 123 {
+                                self.col_protocol = Some("NTP".to_string());
+                            }
+                            if cache.srcport == 53 || cache.dstport == 53 {
+                                self.col_protocol = Some("DNS".to_string());
+                            }
+                            }
                         None => {
                             // cache miss
                             // eprintln!("cache miss");
