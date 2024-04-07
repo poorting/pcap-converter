@@ -221,7 +221,7 @@ impl PacketStats {
                 self.ip_frag_offset = Some(frag_offset);
 
                 if frag_offset > 0 {
-                        match cache.get(&ip.identification) {
+                    match cache.get(&ip.identification) {
                         Some(cache) => {
                             self.udp_srcport = Some(cache.srcport);
                             self.udp_dstport = Some(cache.dstport);
