@@ -13,17 +13,19 @@ use parquet::{
     file::properties::*,
     arrow::ArrowWriter,
 };
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 
 #[derive(Debug, Default)]
 pub struct PacketCache {
-   pub srcport: Option<u16>,
-   pub dstport: Option<u16>,
-   pub protocol: Option<String>,
-   pub dns_qry_name: Option<String>,
-   pub dns_qry_type: Option<u16>,
-   pub ip_total_len: u16,
-   pub ntp_priv_reqcode: Option<u8>,
+    pub src_address: Option<String>,
+    pub srcport: Option<u16>,
+    pub dstport: Option<u16>,
+    pub protocol: Option<String>,
+    pub dns_qry_name: Option<String>,
+    pub dns_qry_type: Option<u16>,
+    pub ip_total_len: u16,
+    pub ntp_priv_reqcode: Option<u8>,
 }
 
 
@@ -41,9 +43,17 @@ pub struct StatsWriter {
     errors: i64,
     verbose: bool,
     // let mut cache = HashMap::new();
-    cache: HashMap<u16, PacketCache>,
+    cache: HashMap<u64, PacketCache>,
  }
 
+
+ #[inline]
+ fn create_hash(source:u32, ip_id: u16) -> u64 {
+    let mut s = DefaultHasher::new();
+    source.hash(&mut s);
+    ip_id.hash(&mut s);
+    s.finish()
+}
 
 impl StatsWriter {
     pub fn new(filename: &str, pcap_file: &str, verbose: bool) -> Result<StatsWriter, Error> {
@@ -125,47 +135,39 @@ impl StatsWriter {
 
         self.errors += packet.errors;
 
-        // Implement caching 
-        match packet.ip_frag_offset {
-            Some(offset) => {
-                if offset > 0 {
-                    match self.cache.get(&packet.ip_id) {
-                        Some(cache) => {
-                            packet.udp_srcport = cache.srcport;
-                            packet.udp_dstport = cache.dstport;
-                            packet.col_protocol = cache.protocol.clone();
-                            packet.dns_qry_type = cache.dns_qry_type;
-                            packet.dns_qry_name = cache.dns_qry_name.clone();
-                            packet.ntp_priv_reqcode = cache.ntp_priv_reqcode;
-                        }
-        
-                        None => {
-                            // cache miss
-                            // eprintln!("cache miss");
-                            self.cache_misses += 1;
-                        }
-                    }
-                } else {
-                    match packet.ip_proto {
-                        Some(proto) => {
-                            if proto == 17 {
-                                let ports: PacketCache = PacketCache {
-                                    srcport: packet.udp_srcport,
-                                    dstport: packet.udp_dstport,
-                                    protocol: packet.col_protocol.clone(),
-                                    dns_qry_type: packet.dns_qry_type,
-                                    dns_qry_name: packet.dns_qry_name.clone(),
-                                    ip_total_len: packet.ip_total_len,
-                                    ntp_priv_reqcode: packet.ntp_priv_reqcode,
-                                };
-                                self.cache.entry(packet.ip_id).or_insert(ports);
-                            }
-                        }
-                        None => ()
-                    }
+        // Implement caching
+
+        if packet.ip_frag_offset > 0 {
+            match self.cache.get(&create_hash(packet.ip_src_raw, packet.ip_id)) {
+                Some(cache) => {
+                    packet.udp_srcport = cache.srcport;
+                    packet.udp_dstport = cache.dstport;
+                    packet.col_protocol = cache.protocol.clone();
+                    packet.dns_qry_type = cache.dns_qry_type;
+                    packet.dns_qry_name = cache.dns_qry_name.clone();
+                    packet.ntp_priv_reqcode = cache.ntp_priv_reqcode;
+                }
+
+                None => {
+                    // cache miss
+                    // eprintln!("cache miss");
+                    self.cache_misses += 1;
                 }
             }
-            None => ()
+        } else {
+            if packet.ip_proto == 17 {
+                let ports: PacketCache = PacketCache {
+                    src_address: packet.ip_src.clone(),
+                    srcport: packet.udp_srcport,
+                    dstport: packet.udp_dstport,
+                    protocol: packet.col_protocol.clone(),
+                    dns_qry_type: packet.dns_qry_type,
+                    dns_qry_name: packet.dns_qry_name.clone(),
+                    ip_total_len: packet.ip_total_len,
+                    ntp_priv_reqcode: packet.ntp_priv_reqcode,
+                };
+                self.cache.entry(create_hash(packet.ip_src_raw, packet.ip_id)).or_insert(ports);
+            }
         }
 
         self.packets.push(packet);
@@ -183,9 +185,9 @@ impl StatsWriter {
         let eth_type = UInt16Array::from(self.packets.iter().map(|p| p.eth_type).collect::<Vec<Option<u16>>>());
         let ip_src = GenericStringArray::<i32>::from(self.packets.iter().map(|p| p.ip_src.clone()).collect::<Vec<Option<String>>>());
         let ip_dst = GenericStringArray::<i32>::from(self.packets.iter().map(|p| p.ip_dst.clone()).collect::<Vec<Option<String>>>());
-        let ip_proto = UInt8Array::from(self.packets.iter().map(|p| p.ip_proto).collect::<Vec<Option<u8>>>());
+        let ip_proto = UInt8Array::from(self.packets.iter().map(|p| p.ip_proto).collect::<Vec<u8>>());
         let ip_ttl = UInt8Array::from(self.packets.iter().map(|p| p.ip_ttl).collect::<Vec<Option<u8>>>());
-        let ip_frag_offset = UInt16Array::from(self.packets.iter().map(|p| p.ip_frag_offset).collect::<Vec<Option<u16>>>());
+        let ip_frag_offset = UInt16Array::from(self.packets.iter().map(|p| p.ip_frag_offset).collect::<Vec<u16>>());
         let icmp_type = UInt8Array::from(self.packets.iter().map(|p| p.icmp_type).collect::<Vec<Option<u8>>>());
         let udp_length = UInt16Array::from(self.packets.iter().map(|p| p.udp_length).collect::<Vec<Option<u16>>>());
         let udp_srcport = UInt16Array::from(self.packets.iter().map(|p| p.udp_srcport).collect::<Vec<Option<u16>>>());

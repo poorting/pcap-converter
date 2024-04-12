@@ -12,12 +12,13 @@ pub struct PacketStats {
     pub frame_time: Option<i64>,
     pub frame_len: Option<u32>,
     pub eth_type: Option<u16>,
+    pub ip_src_raw: u32,
     pub ip_id: u16,
     pub ip_src: Option<String>,
     pub ip_dst: Option<String>,
-    pub ip_proto: Option<u8>,
+    pub ip_proto: u8,
     pub ip_ttl: Option<u8>,
-    pub ip_frag_offset: Option<u16>,
+    pub ip_frag_offset: u16,
     pub icmp_type: Option<u8>,
     pub udp_length: Option<u16>,
     pub udp_srcport: Option<u16>,
@@ -222,16 +223,17 @@ impl PacketStats {
                 self.ip_total_len = ip.total_len;
 
                 self.ip_src = Some(Ipv4Addr::from(ip.source).to_string());
+                self.ip_src_raw = u32::from_be_bytes(ip.source);
                 self.ip_dst = Some(Ipv4Addr::from(ip.destination).to_string());
                 self.col_source = Some(Ipv4Addr::from(ip.source).to_string());
                 self.col_destination =
                     Some(Ipv4Addr::from(ip.destination).to_string());
                 self.ip_ttl = Some(ip.time_to_live);
-                self.ip_proto = Some(u8::from(ip.protocol));
+                self.ip_proto = u8::from(ip.protocol);
 
                 let frag_offset = u16::from(ip.fragment_offset);
                 self.more_fragments = ip.more_fragments;
-                self.ip_frag_offset = Some(frag_offset);
+                self.ip_frag_offset = frag_offset;
 
                 if frag_offset > 0 {
                     return;
@@ -269,7 +271,7 @@ impl PacketStats {
                 self.col_destination =
                     Some(Ipv6Addr::from(ip.destination).to_string());
                 self.ip_ttl = Some(ip.hop_limit);
-                self.ip_proto = Some(u8::from(ip.next_header));
+                self.ip_proto = u8::from(ip.next_header);
             }
             _ => (),
         }
