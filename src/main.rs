@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use pcap_parser::*;
-use std::{collections::HashMap};
 use std::fmt::Debug;
 use std::fs::File;
 use packetstats::*;
@@ -30,8 +29,6 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-
-    let mut cache = HashMap::new();
 
     let file = File::open(&args.file)?;
     let mut reader = create_reader(65536*1024, file)?;
@@ -63,7 +60,7 @@ fn main() -> Result<()> {
                                 .context("Legacy PCAP Error get_packetdata")?;
 
                         // eprintln!("{:?}", pkt_data.clone());
-                        packet_stats.analyze_packet(pkt_data, &mut cache)?;
+                        packet_stats.analyze_packet(pkt_data)?;
                         // pkt_data.clone_into(target)
                         statswriter.push(packet_stats);
                     }
@@ -88,7 +85,7 @@ fn main() -> Result<()> {
                             epb.caplen as usize,
                         )
                         .context("PCAP-NG EnhancedPacket Error get_packetdata")?;
-                        packet_stats.analyze_packet(pkt_data, &mut cache)?;
+                        packet_stats.analyze_packet(pkt_data)?;
                         statswriter.push(packet_stats);                        
                     }
                     PcapBlockOwned::NG(Block::SimplePacket(ref spb)) => {
@@ -97,7 +94,7 @@ fn main() -> Result<()> {
                         let blen = (spb.block_len1 - 16) as usize;
                         let pkt_data = pcap_parser::data::get_packetdata(spb.data, linktype, blen)
                             .context("PCAP-NG SimplePacket Error get_packetdata")?;
-                        packet_stats.analyze_packet(pkt_data, &mut cache)?;
+                        packet_stats.analyze_packet(pkt_data)?;
                         statswriter.push(packet_stats);                        
                     }
                     PcapBlockOwned::NG(_block) => {

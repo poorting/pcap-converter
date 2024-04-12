@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt::Debug;
 use anyhow::Error;
 use pcap_parser::data::PacketData;
@@ -7,17 +6,6 @@ use etherparse::icmpv4::TYPE_DEST_UNREACH;
 use std::net::*;
 use domain::base::*;
 // use ntp_parser::*;
-
-
-#[derive(Debug, Default)]
-pub struct FragmentCache {
-   pub srcport: u16,
-   pub dstport: u16,
-   pub dns_qry_name: String,
-   pub dns_qry_type: u16,
-   pub ip_total_len: u16,
-   pub ntp_priv_reqcode: u8,
-}
 
 #[derive(Default, Debug, Clone)]
 pub struct PacketStats {
@@ -51,7 +39,7 @@ pub struct PacketStats {
     pub ntp_priv_reqcode: Option<u8>,
     pub ip_total_len: u16,
     pub more_fragments: bool,
-    pub cache_miss: i64,
+    // pub cache_miss: i64,
     pub errors: i64,
 }
 
@@ -178,14 +166,14 @@ impl PacketStats {
     }
 
 
-    pub fn analyze_packet(&mut self, pkt_data: PacketData, cache: &mut HashMap<u16, FragmentCache>) -> Result<(),Error> {
+    pub fn analyze_packet(&mut self, pkt_data: PacketData) -> Result<(),Error> {
         match pkt_data {
             PacketData::L2(eth_data) => {
                 let result = PacketHeaders::from_ethernet_slice(eth_data);
                 // self.analyze_packet_headers(PacketHeaders::from_ethernet_slice(eth_data)?, cache);
                 match result {
                     Ok(pkt_headers) => {
-                        self.analyze_packet_headers(pkt_headers, cache);
+                        self.analyze_packet_headers(pkt_headers);
                     }
 
                     Err(_slice_error) => {
@@ -200,7 +188,7 @@ impl PacketStats {
                 // self.analyze_packet_headers(PacketHeaders::from_ip_slice(ip_data)?, cache);
                 match result {
                     Ok(pkt_headers) => {
-                        self.analyze_packet_headers(pkt_headers, cache);
+                        self.analyze_packet_headers(pkt_headers);
                     }
 
                     Err(_slice_error) => {
@@ -216,7 +204,8 @@ impl PacketStats {
     }
 
 
-    fn analyze_packet_headers(&mut self, pkt_headers: PacketHeaders, cache: &mut HashMap<u16, FragmentCache>) {
+    // fn analyze_packet_headers(&mut self, pkt_headers: PacketHeaders, cache: &mut HashMap<u16, FragmentCache>) {
+    fn analyze_packet_headers(&mut self, pkt_headers: PacketHeaders) {
 
         let EtherType(et) = pkt_headers.link.clone().unwrap().ether_type;
         self.eth_type = Some(et);
@@ -245,34 +234,13 @@ impl PacketStats {
                 self.ip_frag_offset = Some(frag_offset);
 
                 if frag_offset > 0 {
-                    match cache.get(&ip.identification) {
-                        Some(cache) => {
-                            self.udp_srcport = Some(cache.srcport);
-                            self.udp_dstport = Some(cache.dstport);
-                            // self.udp_length = Some(ip.total_len);
-                            if cache.srcport == 53 || cache.dstport == 53 {
-                                self.col_protocol = Some("DNS".to_string());
-                                self.dns_qry_type = Some(cache.dns_qry_type);
-                                self.dns_qry_name = Some(cache.dns_qry_name.clone());
-                            } else if cache.srcport == 123 || cache.dstport == 123 {
-                                self.col_protocol = Some("NTP".to_string());
-                                self.ntp_priv_reqcode = Some(cache.ntp_priv_reqcode);
-                            }
-                        }
-
-                        None => {
-                            // cache miss
-                            // eprintln!("cache miss");
-                            self.cache_miss += 1;
-                        }
-                    }
-                    // Fragmented packet, so no need to try the other layers
                     return;
 
                 } else {
                     // etherparse will not try to parse a first fragment
                     // Hence this approach.
                     // Only do this with fragmented packets!
+
                     if ip.more_fragments {
                         match pkt_headers.payload {
                             PayloadSlice::Ip(ip_payload) => {
@@ -317,21 +285,6 @@ impl PacketStats {
                 self.udp_dstport = Some(udp.destination_port);
                 self.udp_length = Some(udp.length);
 
-                let ports: FragmentCache = FragmentCache {
-                    srcport: udp.source_port,
-                    dstport: udp.destination_port,
-                    dns_qry_type: 0,
-                    dns_qry_name: "".to_string(),
-                    ip_total_len: self.ip_total_len,
-                    ntp_priv_reqcode: 0,
-                };
-                match self.ip_id {
-                    Some(ip_id) => {
-                        cache.entry(ip_id).or_insert(ports);
-                    },
-                    None => (),
-                }
-
                 if udp.source_port == 53 || udp.destination_port == 53 {
                     self.col_protocol = Some("DNS".to_string());
                     match Message::from_octets(&transport_payload.slice()) {
@@ -345,14 +298,14 @@ impl PacketStats {
                                     };
                                     self.dns_qry_name = Some(name.clone());
                                     self.dns_qry_type = Some(question.qtype().to_int());
-                                    match self.ip_id {
-                                        Some(_ip_id) => {
-                                            let fc = cache.entry(self.ip_id.unwrap()).or_insert(Default::default());
-                                            (*fc).dns_qry_name = name;
-                                            (*fc).dns_qry_type = question.qtype().to_int();
-                                        },
-                                        None => (),
-                                    }
+                                    // match self.ip_id {
+                                    //     Some(_ip_id) => {
+                                    //         let fc = cache.entry(self.ip_id.unwrap()).or_insert(Default::default());
+                                    //         (*fc).dns_qry_name = name;
+                                    //         (*fc).dns_qry_type = question.qtype().to_int();
+                                    //     },
+                                    //     None => (),
+                                    // }
                                 }
                                 _ => ()
                             }
@@ -382,13 +335,6 @@ impl PacketStats {
                             if (i[0] >> 3) & 0b111 == 2 {
                                 // Yes, simply take the request code from the 4th byte
                                 self.ntp_priv_reqcode = Some(i[3]);
-                                match self.ip_id {
-                                    Some(_ip_id) => {
-                                        let fc = cache.entry(self.ip_id.unwrap()).or_insert(Default::default());
-                                        (*fc).ntp_priv_reqcode = i[3];
-                                    },
-                                    None => (),
-                                }
                         } else {
                                 self.errors += 1;
                             }

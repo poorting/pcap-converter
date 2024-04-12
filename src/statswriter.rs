@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::{fmt::Debug, sync::Arc};
 use std::path::Path;
 use std::fs::File;
@@ -14,6 +15,16 @@ use parquet::{
 };
 
 
+#[derive(Debug, Default)]
+pub struct PacketCache {
+   pub srcport: Option<u16>,
+   pub dstport: Option<u16>,
+   pub protocol: Option<String>,
+   pub dns_qry_name: Option<String>,
+   pub dns_qry_type: Option<u16>,
+   pub ip_total_len: u16,
+   pub ntp_priv_reqcode: Option<u8>,
+}
 
 
 #[derive(Debug)]
@@ -29,6 +40,8 @@ pub struct StatsWriter {
     cache_misses: i64,
     errors: i64,
     verbose: bool,
+    // let mut cache = HashMap::new();
+    cache: HashMap<u16, PacketCache>,
  }
 
 
@@ -63,6 +76,7 @@ impl StatsWriter {
                 cache_misses: 0,
                 errors: 0,
                 verbose: verbose,
+                cache: HashMap::new(),
             };
     
         Ok(sw)
@@ -107,10 +121,52 @@ impl StatsWriter {
         fields
     }
     
-    pub fn push(&mut self, packet: PacketStats) {
+    pub fn push(&mut self, mut packet: PacketStats) {
 
-        self.cache_misses += packet.cache_miss;
+        // self.cache_misses += packet.cache_miss;
         self.errors += packet.errors;
+
+        if packet.is_first_fragment() {
+            // Push to cache
+            let ports: PacketCache = PacketCache {
+                srcport: packet.udp_srcport,
+                dstport: packet.udp_dstport,
+                protocol: packet.col_protocol.clone(),
+                dns_qry_type: packet.dns_qry_type,
+                dns_qry_name: packet.dns_qry_name.clone(),
+                ip_total_len: packet.ip_total_len,
+                ntp_priv_reqcode: packet.ntp_priv_reqcode,
+            };
+            match packet.ip_id {
+                Some(ip_id) => {
+                    self.cache.entry(ip_id).or_insert(ports);
+                },
+                None => (),
+            }
+        } else if packet.is_fragment() {
+            match packet.ip_id {
+                Some(ip_id) => {
+                    match self.cache.get(&ip_id) {
+                        Some(cache) => {
+                            packet.udp_srcport = cache.srcport;
+                            packet.udp_dstport = cache.dstport;
+                            packet.col_protocol = cache.protocol.clone();
+                            packet.dns_qry_type = cache.dns_qry_type;
+                            packet.dns_qry_name = cache.dns_qry_name.clone();
+                            packet.ntp_priv_reqcode = cache.ntp_priv_reqcode;
+                        }
+        
+                        None => {
+                            // cache miss
+                            // eprintln!("cache miss");
+                            self.cache_misses += 1;
+                        }
+                    }
+                },
+                None => (),
+            }
+        }
+
         self.packets.push(packet);
         self.packet_count += 1;
 
