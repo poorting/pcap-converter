@@ -126,27 +126,10 @@ impl StatsWriter {
         // self.cache_misses += packet.cache_miss;
         self.errors += packet.errors;
 
-        if packet.is_first_fragment() {
-            // Push to cache
-            let ports: PacketCache = PacketCache {
-                srcport: packet.udp_srcport,
-                dstport: packet.udp_dstport,
-                protocol: packet.col_protocol.clone(),
-                dns_qry_type: packet.dns_qry_type,
-                dns_qry_name: packet.dns_qry_name.clone(),
-                ip_total_len: packet.ip_total_len,
-                ntp_priv_reqcode: packet.ntp_priv_reqcode,
-            };
-            match packet.ip_id {
-                Some(ip_id) => {
-                    self.cache.entry(ip_id).or_insert(ports);
-                },
-                None => (),
-            }
-        } else if packet.is_fragment() {
-            match packet.ip_id {
-                Some(ip_id) => {
-                    match self.cache.get(&ip_id) {
+        match packet.ip_frag_offset {
+            Some(offset) => {
+                if offset > 0 {
+                    match self.cache.get(&packet.ip_id) {
                         Some(cache) => {
                             packet.udp_srcport = cache.srcport;
                             packet.udp_dstport = cache.dstport;
@@ -162,10 +145,58 @@ impl StatsWriter {
                             self.cache_misses += 1;
                         }
                     }
-                },
-                None => (),
+                } else {
+                    if packet.more_fragments {
+                        let ports: PacketCache = PacketCache {
+                            srcport: packet.udp_srcport,
+                            dstport: packet.udp_dstport,
+                            protocol: packet.col_protocol.clone(),
+                            dns_qry_type: packet.dns_qry_type,
+                            dns_qry_name: packet.dns_qry_name.clone(),
+                            ip_total_len: packet.ip_total_len,
+                            ntp_priv_reqcode: packet.ntp_priv_reqcode,
+                        };
+                        self.cache.entry(packet.ip_id).or_insert(ports);
+                    }
+                }
             }
+            None => ()
         }
+        // if packet.is_first_fragment() {
+        //     // Push to cache
+        //     let ports: PacketCache = PacketCache {
+        //         srcport: packet.udp_srcport,
+        //         dstport: packet.udp_dstport,
+        //         protocol: packet.col_protocol.clone(),
+        //         dns_qry_type: packet.dns_qry_type,
+        //         dns_qry_name: packet.dns_qry_name.clone(),
+        //         ip_total_len: packet.ip_total_len,
+        //         ntp_priv_reqcode: packet.ntp_priv_reqcode,
+        //     };
+        //     self.cache.entry(ip_id).or_insert(ports);
+        // } else if packet.is_fragment() {
+        //     match packet.ip_id {
+        //         Some(ip_id) => {
+        //             match self.cache.get(&ip_id) {
+        //                 Some(cache) => {
+        //                     packet.udp_srcport = cache.srcport;
+        //                     packet.udp_dstport = cache.dstport;
+        //                     packet.col_protocol = cache.protocol.clone();
+        //                     packet.dns_qry_type = cache.dns_qry_type;
+        //                     packet.dns_qry_name = cache.dns_qry_name.clone();
+        //                     packet.ntp_priv_reqcode = cache.ntp_priv_reqcode;
+        //                 }
+        
+        //                 None => {
+        //                     // cache miss
+        //                     // eprintln!("cache miss");
+        //                     self.cache_misses += 1;
+        //                 }
+        //             }
+        //         },
+        //         None => (),
+        //     }
+        // }
 
         self.packets.push(packet);
         self.packet_count += 1;

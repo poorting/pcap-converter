@@ -12,7 +12,7 @@ pub struct PacketStats {
     pub frame_time: Option<i64>,
     pub frame_len: Option<u32>,
     pub eth_type: Option<u16>,
-    pub ip_id: Option<u16>,
+    pub ip_id: u16,
     pub ip_src: Option<String>,
     pub ip_dst: Option<String>,
     pub ip_proto: Option<u8>,
@@ -124,16 +124,16 @@ impl PacketStats {
         self.frame_time = frame_time;
     }
 
-    pub fn is_fragment(&mut self) -> bool {
-        match self.ip_frag_offset {
-            Some(offset) => offset > 0,
-            None => false,
-        }
-    }
+    // pub fn is_fragment(&mut self) -> bool {
+    //     match self.ip_frag_offset {
+    //         Some(offset) => offset > 0,
+    //         None => false,
+    //     }
+    // }
 
-    pub fn is_first_fragment(&mut self) -> bool {
-        self.more_fragments && !self.is_fragment()
-    }
+    // pub fn is_first_fragment(&mut self) -> bool {
+    //     self.more_fragments && !self.is_fragment()
+    // }
 
     fn tcp_flags_as_string(&mut self, tcp: TcpHeader) -> String {
         let mut flags = String::from("........");
@@ -218,7 +218,7 @@ impl PacketStats {
                 // May be replaced by transport or application protocol later on
                 self.col_protocol = Some("IPv4".to_string());
                 // self.frame_len = Some(ip.total_len as u32);
-                self.ip_id = Some(ip.identification);
+                self.ip_id = ip.identification;
                 self.ip_total_len = ip.total_len;
 
                 self.ip_src = Some(Ipv4Addr::from(ip.source).to_string());
