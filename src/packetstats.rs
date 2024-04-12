@@ -266,6 +266,9 @@ impl PacketStats {
                             self.cache_miss += 1;
                         }
                     }
+                    // Fragmented packet, so no need to try the other layers
+                    return;
+
                 } else {
                     // etherparse will not try to parse a first fragment
                     // Hence this approach.
