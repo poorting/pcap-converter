@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+// use std::collections::HashMap;
 use std::{fmt::Debug, sync::Arc};
 use std::path::Path;
 use std::fs::File;
@@ -13,7 +13,7 @@ use parquet::{
     file::properties::*,
     arrow::ArrowWriter,
 };
-use std::hash::{DefaultHasher, Hash, Hasher};
+// use std::hash::{DefaultHasher, Hash, Hasher};
 
 
 #[derive(Debug, Default)]
@@ -42,18 +42,17 @@ pub struct StatsWriter {
     cache_misses: i64,
     errors: i64,
     verbose: bool,
-    // let mut cache = HashMap::new();
-    cache: HashMap<u64, PacketCache>,
+    // cache: HashMap<u64, PacketCache>,
  }
 
 
- #[inline]
- fn create_hash(source:u32, ip_id: u16) -> u64 {
-    let mut s = DefaultHasher::new();
-    source.hash(&mut s);
-    ip_id.hash(&mut s);
-    s.finish()
-}
+//  #[inline]
+//  fn create_hash(source:u32, ip_id: u16) -> u64 {
+//     let mut s = DefaultHasher::new();
+//     source.hash(&mut s);
+//     ip_id.hash(&mut s);
+//     s.finish()
+// }
 
 impl StatsWriter {
     pub fn new(filename: &str, pcap_file: &str, verbose: bool) -> Result<StatsWriter, Error> {
@@ -86,7 +85,7 @@ impl StatsWriter {
                 cache_misses: 0,
                 errors: 0,
                 verbose: verbose,
-                cache: HashMap::new(),
+                // cache: HashMap::new(),
             };
     
         Ok(sw)
@@ -107,6 +106,8 @@ impl StatsWriter {
         fields.push(Field::new("ip_proto", UInt8, true));
         fields.push(Field::new("ip_ttl", UInt8, true));
         fields.push(Field::new("ip_frag_offset", UInt16, true));
+        fields.push(Field::new("ip_id", UInt16, true));
+        fields.push(Field::new("ip_mf", Boolean, true));
         fields.push(Field::new("icmp_type", UInt8, true));
         fields.push(Field::new("udp_length", UInt16, true));
         fields.push(Field::new("udp_srcport", UInt16, true));
@@ -131,44 +132,44 @@ impl StatsWriter {
         fields
     }
     
-    pub fn push(&mut self, mut packet: PacketStats) {
+    // pub fn push(&mut self, mut packet: PacketStats) {
+    pub fn push(&mut self, packet: PacketStats) {
 
         self.errors += packet.errors;
 
-        // Implement caching
+        // // Implement caching
+        // if packet.ip_frag_offset > 0 {
+        //     match self.cache.get(&create_hash(packet.ip_src_raw, packet.ip_id)) {
+        //         Some(cache) => {
+        //             packet.udp_srcport = cache.srcport;
+        //             packet.udp_dstport = cache.dstport;
+        //             packet.col_protocol = cache.protocol.clone();
+        //             packet.dns_qry_type = cache.dns_qry_type;
+        //             packet.dns_qry_name = cache.dns_qry_name.clone();
+        //             packet.ntp_priv_reqcode = cache.ntp_priv_reqcode;
+        //         }
 
-        if packet.ip_frag_offset > 0 {
-            match self.cache.get(&create_hash(packet.ip_src_raw, packet.ip_id)) {
-                Some(cache) => {
-                    packet.udp_srcport = cache.srcport;
-                    packet.udp_dstport = cache.dstport;
-                    packet.col_protocol = cache.protocol.clone();
-                    packet.dns_qry_type = cache.dns_qry_type;
-                    packet.dns_qry_name = cache.dns_qry_name.clone();
-                    packet.ntp_priv_reqcode = cache.ntp_priv_reqcode;
-                }
-
-                None => {
-                    // cache miss
-                    // eprintln!("cache miss");
-                    self.cache_misses += 1;
-                }
-            }
-        } else {
-            if packet.ip_proto == 17 {
-                let ports: PacketCache = PacketCache {
-                    src_address: packet.ip_src.clone(),
-                    srcport: packet.udp_srcport,
-                    dstport: packet.udp_dstport,
-                    protocol: packet.col_protocol.clone(),
-                    dns_qry_type: packet.dns_qry_type,
-                    dns_qry_name: packet.dns_qry_name.clone(),
-                    ip_total_len: packet.ip_total_len,
-                    ntp_priv_reqcode: packet.ntp_priv_reqcode,
-                };
-                self.cache.entry(create_hash(packet.ip_src_raw, packet.ip_id)).or_insert(ports);
-            }
-        }
+        //         None => {
+        //             // cache miss
+        //             // eprintln!("cache miss");
+        //             self.cache_misses += 1;
+        //         }
+        //     }
+        // } else {
+        //     if packet.ip_proto == 17 {
+        //         let ports: PacketCache = PacketCache {
+        //             src_address: packet.ip_src.clone(),
+        //             srcport: packet.udp_srcport,
+        //             dstport: packet.udp_dstport,
+        //             protocol: packet.col_protocol.clone(),
+        //             dns_qry_type: packet.dns_qry_type,
+        //             dns_qry_name: packet.dns_qry_name.clone(),
+        //             ip_total_len: packet.ip_total_len,
+        //             ntp_priv_reqcode: packet.ntp_priv_reqcode,
+        //         };
+        //         self.cache.entry(create_hash(packet.ip_src_raw, packet.ip_id)).or_insert(ports);
+        //     }
+        // }
 
         self.packets.push(packet);
         self.packet_count += 1;
@@ -188,6 +189,8 @@ impl StatsWriter {
         let ip_proto = UInt8Array::from(self.packets.iter().map(|p| p.ip_proto).collect::<Vec<u8>>());
         let ip_ttl = UInt8Array::from(self.packets.iter().map(|p| p.ip_ttl).collect::<Vec<Option<u8>>>());
         let ip_frag_offset = UInt16Array::from(self.packets.iter().map(|p| p.ip_frag_offset).collect::<Vec<u16>>());
+        let ip_id = UInt16Array::from(self.packets.iter().map(|p| p.ip_id).collect::<Vec<u16>>());
+        let ip_mf = BooleanArray::from(self.packets.iter().map(|p| p.more_fragments).collect::<Vec<bool>>());
         let icmp_type = UInt8Array::from(self.packets.iter().map(|p| p.icmp_type).collect::<Vec<Option<u8>>>());
         let udp_length = UInt16Array::from(self.packets.iter().map(|p| p.udp_length).collect::<Vec<Option<u16>>>());
         let udp_srcport = UInt16Array::from(self.packets.iter().map(|p| p.udp_srcport).collect::<Vec<Option<u16>>>());
@@ -221,6 +224,8 @@ impl StatsWriter {
                 Arc::new(ip_proto),
                 Arc::new(ip_ttl),
                 Arc::new(ip_frag_offset),
+                Arc::new(ip_id),
+                Arc::new(ip_mf),
                 Arc::new(icmp_type),
                 Arc::new(udp_length),
                 Arc::new(udp_srcport),
