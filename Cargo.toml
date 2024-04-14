@@ -16,3 +16,5 @@ num-format = "0.4.4"
 arrow = "50.0.0"
 parquet = "50.0.0"
 ntp-parser = "0.6.0"
+rand = "0.8.5"
+duckdb = { version = "0.10.1", features = ["bundled"] }

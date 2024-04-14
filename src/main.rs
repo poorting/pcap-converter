@@ -1,8 +1,13 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use pcap_parser::*;
-use std::fmt::Debug;
-use std::fs::File;
+use std::{fmt::Debug, fs};
+use std::fs::*;
+use rand::distributions::{Alphanumeric, DistString};
+use std::env;
+
+use duckdb::Connection;
+
 use packetstats::*;
 use statswriter::*;
 
@@ -23,12 +28,18 @@ struct Args {
     /// Show counter while processing
     #[arg(short, long)]
     verbose: bool,
+    /// Do not combine fragments
+    #[arg(short, long)]
+    nodefrag: bool,
 }
 
 // ****************************************************************************************************** //
 
 fn main() -> Result<()> {
     let args = Args::parse();
+
+    let temp_file = format!("{}/pcap-converter-{}.parquet", env::temp_dir().display(), Alphanumeric.sample_string(&mut rand::thread_rng(), 16));
+    // println!("{}", temp_file);
 
     let file = File::open(&args.file)?;
     let mut reader = create_reader(65536*1024, file)?;
@@ -38,7 +49,7 @@ fn main() -> Result<()> {
     let mut if_linktypes = Vec::new(); // PCAP-NG files
     let mut if_tsresol: u8 = 6;
 
-    let mut statswriter: StatsWriter = StatsWriter::new(&args.out, &args.file, args.verbose)?;
+    let mut statswriter: StatsWriter = StatsWriter::new(&temp_file, &args.file, args.verbose)?;
 
     loop {
         match reader.next() {
@@ -120,12 +131,28 @@ fn main() -> Result<()> {
 
     statswriter.close_parquet();
     statswriter.writer.close()?;
- 
     eprintln!();
-    // create view pcap as select * from 'anon-Booter4.pcap.parquet';
-    // create view ff as select ip_src, ip_dst, ip_id, ip_proto, first(udp_srcport) as udp_srcport, first(udp_dstport) as udp_dstport, first(ntp_priv_reqcode) as ntp_priv_reqcode, first(dns_qry_type) as dns_qry_type, first(dns_qry_name) as dns_qry_name from pcap where ip_proto=17 and ip_mf=1 and ip_frag_offset=0 group by all;
-    // create view raw as select pcap.* exclude (udp_srcport, udp_dstport, ntp_priv_reqcode, dns_qry_type, dns_qry_name), coalesce(pcap.udp_srcport, ff.udp_srcport) as udp_srcport, coalesce(pcap.udp_dstport, ff.udp_dstport) as udp_dstport, coalesce(pcap.ntp_priv_reqcode,ff.ntp_priv_reqcode) as ntp_priv_reqcode, coalesce(pcap.dns_qry_type, ff.dns_qry_type) as dns_qry_type, coalesce(pcap.dns_qry_name, ff.dns_qry_name) as dns_qry_name from pcap left join ff using (ip_src,ip_dst, ip_proto, ip_id);
-    // COPY raw to 'anon-Booter4b.parquet' (format parquet);
+
+    if args.nodefrag {
+        // Simply copy the temp file to args.out
+        // Move/rename will not work if moving to another filesystem
+        // Which is the default case in Debian
+        fs::copy(&temp_file, &args.out)?;
+    } else {
+        // Do some smart duckdb wrangling
+        if args.verbose {
+            eprintln!("Setting UDP/DNS/NTP info on fragments based on first fragment information (if available)");
+        }
+        let conn = Connection::open_in_memory()?;
+        conn.execute(&format!("create view pcap as select * from '{}'", temp_file), [])?;
+        conn.execute("create view ff as select ip_src, ip_dst, ip_id, ip_proto, first(udp_srcport) as udp_srcport, first(udp_dstport) as udp_dstport, first(ntp_priv_reqcode) as ntp_priv_reqcode, first(dns_qry_type) as dns_qry_type, first(dns_qry_name) as dns_qry_name from pcap where ip_proto=17 and ip_mf=1 and ip_frag_offset=0 group by all", [])?;
+        conn.execute("create view raw as select pcap.* exclude (udp_srcport, udp_dstport, ntp_priv_reqcode, dns_qry_type, dns_qry_name), coalesce(pcap.udp_srcport, ff.udp_srcport) as udp_srcport, coalesce(pcap.udp_dstport, ff.udp_dstport) as udp_dstport, coalesce(pcap.ntp_priv_reqcode,ff.ntp_priv_reqcode) as ntp_priv_reqcode, coalesce(pcap.dns_qry_type, ff.dns_qry_type) as dns_qry_type, coalesce(pcap.dns_qry_name, ff.dns_qry_name) as dns_qry_name from pcap left join ff using (ip_src,ip_dst, ip_proto, ip_id)", [])?;
+        conn.execute(&format!("COPY raw to '{}' (format parquet)", args.out), [])?;
+        
+    }
+
+    // Remove the temp file
+    fs::remove_file(temp_file)?;
 
     Ok(())
 }

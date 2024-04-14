@@ -15,44 +15,16 @@ use parquet::{
 };
 // use std::hash::{DefaultHasher, Hash, Hasher};
 
-
-#[derive(Debug, Default)]
-pub struct PacketCache {
-    pub src_address: Option<String>,
-    pub srcport: Option<u16>,
-    pub dstport: Option<u16>,
-    pub protocol: Option<String>,
-    pub dns_qry_name: Option<String>,
-    pub dns_qry_type: Option<u16>,
-    pub ip_total_len: u16,
-    pub ntp_priv_reqcode: Option<u8>,
-}
-
-
 #[derive(Debug)]
 pub struct StatsWriter {
-    // filename: String,
-    // fields: Vec<Field>,
     pcap_file: String,
     schema: Schema,
     pub writer: ArrowWriter<std::fs::File>,
     packets: Vec<PacketStats>,
-    // frag_cache: HashMap<u16, FragmentCache>,
     packet_count: i64,
-    cache_misses: i64,
     errors: i64,
     verbose: bool,
-    // cache: HashMap<u64, PacketCache>,
  }
-
-
-//  #[inline]
-//  fn create_hash(source:u32, ip_id: u16) -> u64 {
-//     let mut s = DefaultHasher::new();
-//     source.hash(&mut s);
-//     ip_id.hash(&mut s);
-//     s.finish()
-// }
 
 impl StatsWriter {
     pub fn new(filename: &str, pcap_file: &str, verbose: bool) -> Result<StatsWriter, Error> {
@@ -74,18 +46,13 @@ impl StatsWriter {
         let path = Path::new(pcap_file);
         let filename = path.file_name().unwrap();
         let sw = StatsWriter { 
-            // filename: filename.to_string(),
-            // fields: StatsWriter::create_fields(), 
                 pcap_file: filename.to_str().unwrap().to_string(),
                 schema: schema,
                 writer: writer,
                 packets: Vec::new(),
-                // frag_cache: HashMap::new(),
                 packet_count: 0,
-                cache_misses: 0,
                 errors: 0,
                 verbose: verbose,
-                // cache: HashMap::new(),
             };
     
         Ok(sw)
@@ -136,40 +103,6 @@ impl StatsWriter {
     pub fn push(&mut self, packet: PacketStats) {
 
         self.errors += packet.errors;
-
-        // // Implement caching
-        // if packet.ip_frag_offset > 0 {
-        //     match self.cache.get(&create_hash(packet.ip_src_raw, packet.ip_id)) {
-        //         Some(cache) => {
-        //             packet.udp_srcport = cache.srcport;
-        //             packet.udp_dstport = cache.dstport;
-        //             packet.col_protocol = cache.protocol.clone();
-        //             packet.dns_qry_type = cache.dns_qry_type;
-        //             packet.dns_qry_name = cache.dns_qry_name.clone();
-        //             packet.ntp_priv_reqcode = cache.ntp_priv_reqcode;
-        //         }
-
-        //         None => {
-        //             // cache miss
-        //             // eprintln!("cache miss");
-        //             self.cache_misses += 1;
-        //         }
-        //     }
-        // } else {
-        //     if packet.ip_proto == 17 {
-        //         let ports: PacketCache = PacketCache {
-        //             src_address: packet.ip_src.clone(),
-        //             srcport: packet.udp_srcport,
-        //             dstport: packet.udp_dstport,
-        //             protocol: packet.col_protocol.clone(),
-        //             dns_qry_type: packet.dns_qry_type,
-        //             dns_qry_name: packet.dns_qry_name.clone(),
-        //             ip_total_len: packet.ip_total_len,
-        //             ntp_priv_reqcode: packet.ntp_priv_reqcode,
-        //         };
-        //         self.cache.entry(create_hash(packet.ip_src_raw, packet.ip_id)).or_insert(ports);
-        //     }
-        // }
 
         self.packets.push(packet);
         self.packet_count += 1;
@@ -264,10 +197,9 @@ impl StatsWriter {
         self.packets = Vec::new();
 
         if self.verbose {
-            eprint!("\rPackets: {} Errors: {} Cache misses: {}", 
+            eprint!("\rPackets: {} Errors: {}", 
                 self.packet_count.to_formatted_string(&Locale::en), 
-                self.errors.to_formatted_string(&Locale::en),
-                self.cache_misses.to_formatted_string(&Locale::en));
+                self.errors.to_formatted_string(&Locale::en));
         }
     }
  
