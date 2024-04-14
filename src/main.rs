@@ -122,6 +122,10 @@ fn main() -> Result<()> {
     statswriter.writer.close()?;
  
     eprintln!();
+    // create view pcap as select * from 'anon-Booter4.pcap.parquet';
+    // create view ff as select ip_src, ip_dst, ip_id, ip_proto, first(udp_srcport) as udp_srcport, first(udp_dstport) as udp_dstport, first(ntp_priv_reqcode) as ntp_priv_reqcode, first(dns_qry_type) as dns_qry_type, first(dns_qry_name) as dns_qry_name from pcap where ip_proto=17 and ip_mf=1 and ip_frag_offset=0 group by all;
+    // create view raw as select pcap.* exclude (udp_srcport, udp_dstport, ntp_priv_reqcode, dns_qry_type, dns_qry_name), coalesce(pcap.udp_srcport, ff.udp_srcport) as udp_srcport, coalesce(pcap.udp_dstport, ff.udp_dstport) as udp_dstport, coalesce(pcap.ntp_priv_reqcode,ff.ntp_priv_reqcode) as ntp_priv_reqcode, coalesce(pcap.dns_qry_type, ff.dns_qry_type) as dns_qry_type, coalesce(pcap.dns_qry_name, ff.dns_qry_name) as dns_qry_name from pcap left join ff using (ip_src,ip_dst, ip_proto, ip_id);
+    // COPY raw to 'anon-Booter4b.parquet' (format parquet);
 
     Ok(())
 }
