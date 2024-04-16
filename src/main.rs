@@ -145,8 +145,8 @@ fn main() -> Result<()> {
         }
         let conn = Connection::open_in_memory()?;
         conn.execute(&format!("create view pcap as select * from '{}'", temp_file), [])?;
-        conn.execute("create view ff as select ip_src, ip_dst, ip_id, ip_proto, first(udp_srcport) as udp_srcport, first(udp_dstport) as udp_dstport, first(ntp_priv_reqcode) as ntp_priv_reqcode, first(dns_qry_type) as dns_qry_type, first(dns_qry_name) as dns_qry_name from pcap where ip_proto=17 and ip_mf=1 and ip_frag_offset=0 group by all", [])?;
-        conn.execute("create view raw as select pcap.* exclude (udp_srcport, udp_dstport, ntp_priv_reqcode, dns_qry_type, dns_qry_name), coalesce(pcap.udp_srcport, ff.udp_srcport) as udp_srcport, coalesce(pcap.udp_dstport, ff.udp_dstport) as udp_dstport, coalesce(pcap.ntp_priv_reqcode,ff.ntp_priv_reqcode) as ntp_priv_reqcode, coalesce(pcap.dns_qry_type, ff.dns_qry_type) as dns_qry_type, coalesce(pcap.dns_qry_name, ff.dns_qry_name) as dns_qry_name from pcap left join ff using (ip_src,ip_dst, ip_proto, ip_id)", [])?;
+        conn.execute("create view ff as select ip_src, ip_dst, ip_id, ip_proto, first(udp_srcport) as udp_srcport, first(udp_dstport) as udp_dstport, first(ntp_priv_reqcode) as ntp_priv_reqcode, first(dns_qry_type) as dns_qry_type, first(dns_qry_name) as dns_qry_name, first(col_protocol) as col_protocol from pcap where ip_proto=17 and ip_mf=1 and ip_frag_offset=0 group by all", [])?;
+        conn.execute("create view raw as select pcap.* exclude (udp_srcport, udp_dstport, ntp_priv_reqcode, dns_qry_type, dns_qry_name, col_protocol), coalesce(ff.udp_srcport, pcap.udp_srcport) as udp_srcport, coalesce(ff.udp_dstport, pcap.udp_dstport) as udp_dstport, coalesce(ff.ntp_priv_reqcode,pcap.ntp_priv_reqcode) as ntp_priv_reqcode, coalesce(ff.dns_qry_type, pcap.dns_qry_type) as dns_qry_type, coalesce(ff.dns_qry_name, pcap.dns_qry_name) as dns_qry_name, coalesce(ff.col_protocol, pcap.col_protocol) as col_protocol from pcap left join ff using (ip_src,ip_dst, ip_proto, ip_id)", [])?;
         conn.execute(&format!("COPY raw to '{}' (format parquet)", args.out), [])?;
         
     }
