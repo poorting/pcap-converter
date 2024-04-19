@@ -1,3 +1,4 @@
+use core::slice;
 use std::fmt::Debug;
 use anyhow::Error;
 use pcap_parser::data::PacketData;
@@ -44,10 +45,7 @@ pub struct PacketStats {
     pub errors: i64,
 }
 
-
-fn read_transport(
-    ip_payload: IpPayloadSlice,
-) -> Result<(Option<TransportHeader>, PayloadSlice), err::tcp::HeaderSliceError> {
+fn read_transport(ip_payload: IpPayloadSlice) -> Result<(Option<TransportHeader>, PayloadSlice), err::tcp::HeaderSliceError> {
     // helper function to set the len source in len errors
     use etherparse::ip_number::*;
     use err::tcp::HeaderSliceError::*;
@@ -104,7 +102,7 @@ fn read_transport(
             layer: err::Layer::TcpHeader,
             layer_start_offset: 0,
         })),
-}
+    }
 }
 
 impl PacketStats {
@@ -112,29 +110,6 @@ impl PacketStats {
         // return Default::default()
         PacketStats { ..Default::default()}
     }
-
-    pub fn copy_from_no_frame(&mut self, other: &PacketStats) {
-
-        let frame_len = self.frame_len;
-        let frame_time = self.frame_time;
-
-        // let mut this = other.clone();
-        *self = other.clone();
-
-        self.frame_len = frame_len;
-        self.frame_time = frame_time;
-    }
-
-    // pub fn is_fragment(&mut self) -> bool {
-    //     match self.ip_frag_offset {
-    //         Some(offset) => offset > 0,
-    //         None => false,
-    //     }
-    // }
-
-    // pub fn is_first_fragment(&mut self) -> bool {
-    //     self.more_fragments && !self.is_fragment()
-    // }
 
     fn tcp_flags_as_string(&mut self, tcp: TcpHeader) -> String {
         let mut flags = String::from("........");
@@ -170,23 +145,36 @@ impl PacketStats {
     pub fn analyze_packet(&mut self, pkt_data: PacketData) -> Result<(),Error> {
         match pkt_data {
             PacketData::L2(eth_data) => {
-                let result = PacketHeaders::from_ethernet_slice(eth_data);
-                // self.analyze_packet_headers(PacketHeaders::from_ethernet_slice(eth_data)?, cache);
-                match result {
-                    Ok(pkt_headers) => {
-                            self.analyze_packet_headers(pkt_headers);
-                    }
+                // let result = PacketHeaders::from_ethernet_slice(eth_data);
+                let (ethernet, slice) = Ethernet2Header::from_slice(eth_data)?;
+                let pkt_headers = PacketHeaders {
+                    link: None,
+                    vlan: None,
+                    net: None,
+                    transport: None,
+                    payload: PayloadSlice::Ether(EtherPayloadSlice {
+                        ether_type: ethernet.ether_type,
+                        payload: slice,
+                    })
+                };
+                self.analyze_packet_headers(pkt_headers);
 
-                    Err(_slice_error) => {
-                        // eprintln!("{:?}", slice_error);
-                        self.errors += 1;
-                    }
-                }
+                // let mut result = Self::from_ether_type(ethernet.ether_type, rest);
+        
+                // match result {
+                //     Ok(pkt_headers) => {
+                //             self.analyze_packet_headers(pkt_headers);
+                //     }
+
+                //     Err(_slice_error) => {
+                //         // eprintln!("{:?}", slice_error);
+                //         self.errors += 1;
+                //     }
+                // }
             }
 
             PacketData::L3(_, ip_data) => {
                 let result = PacketHeaders::from_ip_slice(ip_data);
-                // self.analyze_packet_headers(PacketHeaders::from_ip_slice(ip_data)?, cache);
                 match result {
                     Ok(pkt_headers) => {
                         self.analyze_packet_headers(pkt_headers);
