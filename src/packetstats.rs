@@ -6,7 +6,6 @@ use etherparse::icmpv4::TYPE_DEST_UNREACH;
 use std::net::*;
 use domain::base::*;
 // use ntp_parser::*;
-use std::panic;
 
 #[derive(Default, Debug, Clone)]
 pub struct PacketStats {
@@ -294,28 +293,11 @@ impl PacketStats {
                         Ok(dns) => {
                             match dns.first_question() {
                                 Some(question) => {
-                                    let mut name:String = "<unknown>".to_string();
-                                    let result = panic::catch_unwind(|| {
-                                       question.qname().is_root() 
-                                    });
-                                    match result {
-                                        Ok(isroot) => {
-                                            if isroot {
-                                                name = "<Root>".to_string();
-                                            } else {
-                                                name = name.to_string();
-                                            }
-                                        }
-
-                                        Err(_) => {
-                                            // eprintln!("Panic!");
-                                        }
-                                    }
-                                    // let name = if question.qname().is_root() {
-                                    //     "<Root>".to_string()
-                                    // } else {
-                                    //     question.qname().to_string()
-                                    // };
+                                    let name = if question.qname().is_root() {
+                                        "<Root>".to_string()
+                                    } else {
+                                        question.qname().to_string()
+                                    };
                                     self.dns_qry_name = Some(name.clone());
                                     self.dns_qry_type = Some(question.qtype().to_int());
                                 }

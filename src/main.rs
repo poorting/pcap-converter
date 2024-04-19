@@ -33,8 +33,8 @@ struct Args {
     /// Do not combine fragments
     #[arg(short, long)]
     nodefrag: bool,
-    /// Do not combine fragments
-    #[arg(short, default_value("2"))]
+    /// Number of processing threads
+    #[arg(short, default_value("2")) ]
     j: isize,
 }
 
@@ -98,7 +98,7 @@ fn main() -> Result<()> {
         pkt_threads.push(pkt_thread);
     }
 
-    let mut reader = create_reader(65536*1024*4, file)?;
+    let mut reader = create_reader(65536*1024 , file)?;
 
     loop {
         match reader.next() {
