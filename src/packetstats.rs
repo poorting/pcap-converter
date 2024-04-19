@@ -146,31 +146,31 @@ impl PacketStats {
         match pkt_data {
             PacketData::L2(eth_data) => {
                 // let result = PacketHeaders::from_ethernet_slice(eth_data);
-                let (ethernet, slice) = Ethernet2Header::from_slice(eth_data)?;
-                let pkt_headers = PacketHeaders {
-                    link: None,
-                    vlan: None,
-                    net: None,
-                    transport: None,
-                    payload: PayloadSlice::Ether(EtherPayloadSlice {
-                        ether_type: ethernet.ether_type,
-                        payload: slice,
-                    })
-                };
-                self.analyze_packet_headers(pkt_headers);
+                // let (ethernet, slice) = Ethernet2Header::from_slice(eth_data)?;
+                // let pkt_headers = PacketHeaders {
+                //     link: None,
+                //     vlan: None,
+                //     net: None,
+                //     transport: None,
+                //     payload: PayloadSlice::Ether(EtherPayloadSlice {
+                //         ether_type: ethernet.ether_type,
+                //         payload: slice,
+                //     })
+                // };
+                // self.analyze_packet_headers(pkt_headers);
 
                 // let mut result = Self::from_ether_type(ethernet.ether_type, rest);
-        
-                // match result {
-                //     Ok(pkt_headers) => {
-                //             self.analyze_packet_headers(pkt_headers);
-                //     }
+                let result = PacketHeaders::from_ethernet_slice(eth_data);
+                match result {
+                    Ok(pkt_headers) => {
+                            self.analyze_packet_headers(pkt_headers);
+                    }
 
-                //     Err(_slice_error) => {
-                //         // eprintln!("{:?}", slice_error);
-                //         self.errors += 1;
-                //     }
-                // }
+                    Err(_slice_error) => {
+                        // eprintln!("{:?}", slice_error);
+                        self.errors += 1;
+                    }
+                }
             }
 
             PacketData::L3(_, ip_data) => {

@@ -87,8 +87,8 @@ fn main() -> Result<()> {
                 let mut packet_stats:PacketStats = PacketStats::new();
                 packet_stats.frame_time = Some(pkt_msg.frame_time);
                 packet_stats.frame_len = Some(pkt_msg.frame_len);
-                let slice = pkt_msg.data.as_slice();
-                let pkt_data = pcap_parser::data::get_packetdata(slice, pkt_msg.linktype, pkt_msg.caplen as usize).expect("Error getting packet data");
+                let slice = pkt_msg.data;
+                let pkt_data = pcap_parser::data::get_packetdata(&slice, pkt_msg.linktype, pkt_msg.caplen as usize).expect("Error getting packet data");
 
                 // s.send(packet_stats).unwrap();
                 let result = packet_stats.analyze_packet(pkt_data);
@@ -199,6 +199,7 @@ fn main() -> Result<()> {
 
     // statswriter.close_parquet();
     // statswriter.writer.close()?;
+    eprintln!();
 
     drop(pkt_s);
 
