@@ -149,14 +149,6 @@ fn main() -> Result<()> {
                             origlen: frame_len,
                         };
                         pkt_s.send(pkt_msg).unwrap();
-                        // let pkt_data = pcap_parser::data::get_packetdata(
-                        //     epb.data,
-                        //     linktype,
-                        //     epb.caplen as usize,
-                        // )
-                        // .context("PCAP-NG EnhancedPacket Error get_packetdata")?;
-                        // packet_stats.analyze_packet(pkt_data)?;
-                        // statswriter.push(packet_stats);                        
                     }
                     PcapBlockOwned::NG(Block::SimplePacket(ref spb)) => {
                         assert!(if_linktypes.len() > 0);
@@ -171,10 +163,6 @@ fn main() -> Result<()> {
                             origlen: spb.origlen,
                         };
                         pkt_s.send(pkt_msg).unwrap();
-                        // let pkt_data = pcap_parser::data::get_packetdata(spb.data, linktype, blen)
-                        //     .context("PCAP-NG SimplePacket Error get_packetdata")?;
-                        // packet_stats.analyze_packet(pkt_data)?;
-                        // statswriter.push(packet_stats);                        
                     }
                     PcapBlockOwned::NG(_block) => {
                     }
@@ -197,10 +185,6 @@ fn main() -> Result<()> {
         }
     }
 
-    // statswriter.close_parquet();
-    // statswriter.writer.close()?;
-    eprintln!();
-
     drop(pkt_s);
 
     for pkt_thread in pkt_threads {
@@ -215,7 +199,9 @@ fn main() -> Result<()> {
     drop(stw_s);
     sw_thread.join().unwrap();
 
-    eprintln!();
+    if args.verbose {
+        eprintln!();
+    }
 
     if args.nodefrag {
         // Simply copy the temp file to args.out
@@ -230,7 +216,7 @@ fn main() -> Result<()> {
         let row = conn.query_row("select round(100*count()/(select count() from 'pcap')) from 'pcap' where (ip_frag_offset=0 and ip_mf=true) or ip_frag_offset>0", [], |row| {row.get::<usize, f64>(0)});
         let percentage = row.unwrap();
 
-        if percentage < 1.0 {
+        if percentage < 1.0 { 
             drop(conn);
             if args.verbose {
                 eprintln!("{}% fragmented traffic (<1%), not doing defragmentation", percentage);
