@@ -6,6 +6,7 @@ use etherparse::icmpv4::TYPE_DEST_UNREACH;
 use std::net::*;
 use domain::base::*;
 // use ntp_parser::*;
+use std::panic;
 
 #[derive(Default, Debug, Clone)]
 pub struct PacketStats {
@@ -14,6 +15,7 @@ pub struct PacketStats {
     pub eth_type: Option<u16>,
     pub ip_src_raw: u32,
     pub ip_id: u16,
+    pub more_fragments: bool,
     pub ip_src: Option<String>,
     pub ip_dst: Option<String>,
     pub ip_proto: u8,
@@ -39,7 +41,6 @@ pub struct PacketStats {
     pub http_file_data: Option<String>,
     pub ntp_priv_reqcode: Option<u8>,
     pub ip_total_len: u16,
-    pub more_fragments: bool,
     // pub cache_miss: i64,
     pub errors: i64,
 }
@@ -174,16 +175,16 @@ impl PacketStats {
                 // self.analyze_packet_headers(PacketHeaders::from_ethernet_slice(eth_data)?, cache);
                 match result {
                     Ok(pkt_headers) => {
-                        self.analyze_packet_headers(pkt_headers);
+                            self.analyze_packet_headers(pkt_headers);
                     }
 
                     Err(_slice_error) => {
                         // eprintln!("{:?}", slice_error);
                         self.errors += 1;
                     }
-
                 }
             }
+
             PacketData::L3(_, ip_data) => {
                 let result = PacketHeaders::from_ip_slice(ip_data);
                 // self.analyze_packet_headers(PacketHeaders::from_ip_slice(ip_data)?, cache);
@@ -293,21 +294,30 @@ impl PacketStats {
                         Ok(dns) => {
                             match dns.first_question() {
                                 Some(question) => {
-                                    let name = if question.qname().is_root() {
-                                        "<Root>".to_string()
-                                    } else {
-                                        question.qname().to_string()
-                                    };
+                                    let mut name:String = "<unknown>".to_string();
+                                    let result = panic::catch_unwind(|| {
+                                       question.qname().is_root() 
+                                    });
+                                    match result {
+                                        Ok(isroot) => {
+                                            if isroot {
+                                                name = "<Root>".to_string();
+                                            } else {
+                                                name = name.to_string();
+                                            }
+                                        }
+
+                                        Err(_) => {
+                                            // eprintln!("Panic!");
+                                        }
+                                    }
+                                    // let name = if question.qname().is_root() {
+                                    //     "<Root>".to_string()
+                                    // } else {
+                                    //     question.qname().to_string()
+                                    // };
                                     self.dns_qry_name = Some(name.clone());
                                     self.dns_qry_type = Some(question.qtype().to_int());
-                                    // match self.ip_id {
-                                    //     Some(_ip_id) => {
-                                    //         let fc = cache.entry(self.ip_id.unwrap()).or_insert(Default::default());
-                                    //         (*fc).dns_qry_name = name;
-                                    //         (*fc).dns_qry_type = question.qtype().to_int();
-                                    //     },
-                                    //     None => (),
-                                    // }
                                 }
                                 _ => ()
                             }

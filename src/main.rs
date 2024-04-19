@@ -1,11 +1,11 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
-use pcap_parser::data::PacketData;
 use pcap_parser::*;
 use std::{fmt::Debug, fs};
 use std::fs::*;
 use rand::distributions::{Alphanumeric, DistString};
 use std::env;
+use std::thread::{self, JoinHandle};
 
 use duckdb::Connection;
 
@@ -40,9 +40,14 @@ struct Args {
 
 // ****************************************************************************************************** //
 #[derive(Debug, Clone)]
-pub struct PktMsg<'a> {
-    pub pkt_stats: PacketStats,
-    pub pkt_data: PacketData<'a>,
+pub struct PktMsg {
+    pub frame_time: i64,
+    pub frame_len: u32,
+    // pub data: &'a [u8],
+    pub data: Vec<u8>,
+    pub caplen: u32,
+    pub linktype: Linktype,
+    pub origlen: u32,
 }
 
 // ****************************************************************************************************** //
@@ -61,39 +66,61 @@ fn main() -> Result<()> {
     let mut if_tsresol: u8 = 6;
 
     let mut statswriter: StatsWriter = StatsWriter::new(&temp_file, &args.file, args.verbose)?;
-
+    
     let (pkt_s, pkt_r) = unbounded::<PktMsg>();
     let (stw_s, stw_r) = unbounded::<PacketStats>();
 
-    let mut reader = create_reader(65536*1024, file)?;
+    let sw_thread = thread::spawn(move || {
+        for pkt_stats in stw_r.iter() {
+            statswriter.push(pkt_stats);
+        }
+        statswriter.close_parquet();
+        statswriter.writer.close().unwrap();
+    });
+
+    let mut pkt_threads:Vec<JoinHandle<()>> = Vec::new();
+    for _ in 0..args.j {
+        let r = pkt_r.clone();
+        let s = stw_s.clone();
+        let pkt_thread = thread::spawn( move || {
+            for pkt_msg in r.iter() {
+                let mut packet_stats:PacketStats = PacketStats::new();
+                packet_stats.frame_time = Some(pkt_msg.frame_time);
+                packet_stats.frame_len = Some(pkt_msg.frame_len);
+                let pkt_data = pcap_parser::data::get_packetdata(pkt_msg.data.as_slice(), pkt_msg.linktype, pkt_msg.caplen as usize).expect("Error getting packet data");
+
+                match packet_stats.analyze_packet(pkt_data) {
+                    Ok(_) => s.send(packet_stats).unwrap(),
+                    Err(_) => (),
+                }
+            }
+        });
+        pkt_threads.push(pkt_thread);
+    }
+
+    let mut reader = create_reader(65536*1024*4, file)?;
 
     loop {
         match reader.next() {
             Ok((offset, block)) => {
-
-                let mut packet_stats:PacketStats = PacketStats::new();
 
                 match block {
                     PcapBlockOwned::LegacyHeader(hdr) => {
                         linktype = hdr.network;
                     }
                     PcapBlockOwned::Legacy(b) => {
-                        let tsusec: i64 =
+                        let frame_time: i64 =
                             i64::from(b.ts_sec) * i64::pow(10, 6) + i64::from(b.ts_usec);
-                        packet_stats.frame_time = Some(tsusec);
-                        packet_stats.frame_len = Some(b.origlen);
-                        let pkt_data =
-                            pcap_parser::data::get_packetdata(b.data, linktype, b.caplen as usize)
-                                .context("Legacy PCAP Error get_packetdata")?;
-
-                        let pkt_clone: PacketData<'static> = unsafe { ::std::mem::transmute(pkt_data.clone()) };
-                        let mut pkt_msg = PktMsg {
-                            pkt_stats: packet_stats,
-                            pkt_data: pkt_clone,
+                        let frame_len: u32 = b.origlen;
+                        let pkt_msg = PktMsg {
+                            frame_time: frame_time,
+                            frame_len: frame_len,
+                            data: b.data.to_owned(),
+                            caplen: b.caplen,
+                            linktype: linktype,
+                            origlen: frame_len,
                         };
                         pkt_s.send(pkt_msg).unwrap();
-                        // packet_stats.analyze_packet(pkt_data)?;
-                        // statswriter.push(packet_stats);
                     }
                     PcapBlockOwned::NG(Block::SectionHeader(ref _shb)) => {
                         if_linktypes = Vec::new();
@@ -108,23 +135,41 @@ fn main() -> Result<()> {
                             i64::from(epb.ts_high) * i64::pow(2, 32) + i64::from(epb.ts_low);
                         let ts_res: i64 =
                             i64::from(ts_pkt) * i64::pow(10, 9 - u32::from(if_tsresol));
-                        packet_stats.frame_time = Some(ts_res / 1000);
-                        packet_stats.frame_len = Some(epb.caplen);
-                        let pkt_data = pcap_parser::data::get_packetdata(
-                            epb.data,
-                            linktype,
-                            epb.caplen as usize,
-                        )
-                        .context("PCAP-NG EnhancedPacket Error get_packetdata")?;
+                        let frame_time = ts_res / 1000;
+                        let frame_len = epb.caplen;
+                        let pkt_msg = PktMsg {
+                            frame_time: frame_time,
+                            frame_len: frame_len,
+                            data: epb.data.to_owned(),
+                            caplen: epb.caplen,
+                            linktype: linktype,
+                            origlen: frame_len,
+                        };
+                        pkt_s.send(pkt_msg).unwrap();
+                        // let pkt_data = pcap_parser::data::get_packetdata(
+                        //     epb.data,
+                        //     linktype,
+                        //     epb.caplen as usize,
+                        // )
+                        // .context("PCAP-NG EnhancedPacket Error get_packetdata")?;
                         // packet_stats.analyze_packet(pkt_data)?;
                         // statswriter.push(packet_stats);                        
                     }
                     PcapBlockOwned::NG(Block::SimplePacket(ref spb)) => {
                         assert!(if_linktypes.len() > 0);
                         let linktype = if_linktypes[0];
-                        let blen = (spb.block_len1 - 16) as usize;
-                        let pkt_data = pcap_parser::data::get_packetdata(spb.data, linktype, blen)
-                            .context("PCAP-NG SimplePacket Error get_packetdata")?;
+                        let blen = spb.block_len1 - 16;
+                        let pkt_msg = PktMsg {
+                            frame_time: 0,
+                            frame_len: spb.origlen,
+                            data: spb.data.to_owned(),
+                            caplen: blen,
+                            linktype: linktype,
+                            origlen: spb.origlen,
+                        };
+                        pkt_s.send(pkt_msg).unwrap();
+                        // let pkt_data = pcap_parser::data::get_packetdata(spb.data, linktype, blen)
+                        //     .context("PCAP-NG SimplePacket Error get_packetdata")?;
                         // packet_stats.analyze_packet(pkt_data)?;
                         // statswriter.push(packet_stats);                        
                     }
@@ -151,6 +196,21 @@ fn main() -> Result<()> {
 
     // statswriter.close_parquet();
     // statswriter.writer.close()?;
+
+    drop(pkt_s);
+
+    for pkt_thread in pkt_threads {
+        match pkt_thread.join() {
+            Ok(_) => (),
+            Err(err) => {
+                eprintln!("{:#?}", err);
+            }
+        }
+    }
+
+    drop(stw_s);
+    sw_thread.join().unwrap();
+
     eprintln!();
 
     if args.nodefrag {
