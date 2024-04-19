@@ -18,3 +18,4 @@ parquet = "50.0.0"
 ntp-parser = "0.6.0"
 rand = "0.8.5"
 duckdb = { version = "0.10.1", features = ["bundled"] }
+crossbeam = "0.8"

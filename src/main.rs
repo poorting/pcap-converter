@@ -5,6 +5,8 @@ use std::{fmt::Debug, fs};
 use std::fs::*;
 use rand::distributions::{Alphanumeric, DistString};
 use std::env;
+use std::thread::{self, JoinHandle};
+use crossbeam::channel::unbounded;
 
 use duckdb::Connection;
 
@@ -51,6 +53,15 @@ fn main() -> Result<()> {
 
     let mut statswriter: StatsWriter = StatsWriter::new(&temp_file, &args.file, args.verbose)?;
 
+    let (stw_s, stw_r) = unbounded::<PacketStats>();
+    let sw_thread = thread::spawn(move || {
+        for pkt_stats in stw_r.iter() {
+            statswriter.push(pkt_stats);
+        }
+        statswriter.close_parquet();
+        statswriter.writer.close().unwrap();
+    });
+
     loop {
         match reader.next() {
             Ok((offset, block)) => {
@@ -73,7 +84,8 @@ fn main() -> Result<()> {
                         // eprintln!("{:?}", pkt_data.clone());
                         packet_stats.analyze_packet(pkt_data)?;
                         // pkt_data.clone_into(target)
-                        statswriter.push(packet_stats);
+                        // statswriter.push(packet_stats);
+                        stw_s.send(packet_stats).unwrap();
                     }
                     PcapBlockOwned::NG(Block::SectionHeader(ref _shb)) => {
                         if_linktypes = Vec::new();
@@ -97,7 +109,8 @@ fn main() -> Result<()> {
                         )
                         .context("PCAP-NG EnhancedPacket Error get_packetdata")?;
                         packet_stats.analyze_packet(pkt_data)?;
-                        statswriter.push(packet_stats);                        
+                        // statswriter.push(packet_stats);
+                        stw_s.send(packet_stats).unwrap();
                     }
                     PcapBlockOwned::NG(Block::SimplePacket(ref spb)) => {
                         assert!(if_linktypes.len() > 0);
@@ -106,7 +119,8 @@ fn main() -> Result<()> {
                         let pkt_data = pcap_parser::data::get_packetdata(spb.data, linktype, blen)
                             .context("PCAP-NG SimplePacket Error get_packetdata")?;
                         packet_stats.analyze_packet(pkt_data)?;
-                        statswriter.push(packet_stats);                        
+                        // statswriter.push(packet_stats);
+                        stw_s.send(packet_stats).unwrap();
                     }
                     PcapBlockOwned::NG(_block) => {
                     }
@@ -129,8 +143,11 @@ fn main() -> Result<()> {
         }
     }
 
-    statswriter.close_parquet();
-    statswriter.writer.close()?;
+    // statswriter.close_parquet();
+    // statswriter.writer.close()?;
+    drop(stw_s);
+    sw_thread.join().unwrap();
+
     eprintln!();
 
     if args.nodefrag {
