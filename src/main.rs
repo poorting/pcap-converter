@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use pcap_parser::data::PacketData;
 use pcap_parser::*;
 use std::{fmt::Debug, fs};
 use std::fs::*;
@@ -7,6 +8,8 @@ use rand::distributions::{Alphanumeric, DistString};
 use std::env;
 
 use duckdb::Connection;
+
+use crossbeam::channel::unbounded;
 
 use packetstats::*;
 use statswriter::*;
@@ -24,13 +27,22 @@ struct Args {
     /// File path of the parquet file
     #[arg(short, long)]
     out: String,
-    #[arg(short, long)]
     /// Show counter while processing
     #[arg(short, long)]
     verbose: bool,
     /// Do not combine fragments
     #[arg(short, long)]
     nodefrag: bool,
+    /// Do not combine fragments
+    #[arg(short, default_value("2"))]
+    j: isize,
+}
+
+// ****************************************************************************************************** //
+#[derive(Debug, Clone)]
+pub struct PktMsg<'a> {
+    pub pkt_stats: PacketStats,
+    pub pkt_data: PacketData<'a>,
 }
 
 // ****************************************************************************************************** //
@@ -42,7 +54,6 @@ fn main() -> Result<()> {
     // println!("{}", temp_file);
 
     let file = File::open(&args.file)?;
-    let mut reader = create_reader(65536*1024, file)?;
     let mut consecutive_errors = 0;
 
     let mut linktype = Linktype::ETHERNET; // Legacy PCAP files
@@ -50,6 +61,11 @@ fn main() -> Result<()> {
     let mut if_tsresol: u8 = 6;
 
     let mut statswriter: StatsWriter = StatsWriter::new(&temp_file, &args.file, args.verbose)?;
+
+    let (pkt_s, pkt_r) = unbounded::<PktMsg>();
+    let (stw_s, stw_r) = unbounded::<PacketStats>();
+
+    let mut reader = create_reader(65536*1024, file)?;
 
     loop {
         match reader.next() {
@@ -70,10 +86,14 @@ fn main() -> Result<()> {
                             pcap_parser::data::get_packetdata(b.data, linktype, b.caplen as usize)
                                 .context("Legacy PCAP Error get_packetdata")?;
 
-                        // eprintln!("{:?}", pkt_data.clone());
-                        packet_stats.analyze_packet(pkt_data)?;
-                        // pkt_data.clone_into(target)
-                        statswriter.push(packet_stats);
+                        let pkt_clone: PacketData<'static> = unsafe { ::std::mem::transmute(pkt_data.clone()) };
+                        let mut pkt_msg = PktMsg {
+                            pkt_stats: packet_stats,
+                            pkt_data: pkt_clone,
+                        };
+                        pkt_s.send(pkt_msg).unwrap();
+                        // packet_stats.analyze_packet(pkt_data)?;
+                        // statswriter.push(packet_stats);
                     }
                     PcapBlockOwned::NG(Block::SectionHeader(ref _shb)) => {
                         if_linktypes = Vec::new();
@@ -96,8 +116,8 @@ fn main() -> Result<()> {
                             epb.caplen as usize,
                         )
                         .context("PCAP-NG EnhancedPacket Error get_packetdata")?;
-                        packet_stats.analyze_packet(pkt_data)?;
-                        statswriter.push(packet_stats);                        
+                        // packet_stats.analyze_packet(pkt_data)?;
+                        // statswriter.push(packet_stats);                        
                     }
                     PcapBlockOwned::NG(Block::SimplePacket(ref spb)) => {
                         assert!(if_linktypes.len() > 0);
@@ -105,8 +125,8 @@ fn main() -> Result<()> {
                         let blen = (spb.block_len1 - 16) as usize;
                         let pkt_data = pcap_parser::data::get_packetdata(spb.data, linktype, blen)
                             .context("PCAP-NG SimplePacket Error get_packetdata")?;
-                        packet_stats.analyze_packet(pkt_data)?;
-                        statswriter.push(packet_stats);                        
+                        // packet_stats.analyze_packet(pkt_data)?;
+                        // statswriter.push(packet_stats);                        
                     }
                     PcapBlockOwned::NG(_block) => {
                     }
@@ -129,8 +149,8 @@ fn main() -> Result<()> {
         }
     }
 
-    statswriter.close_parquet();
-    statswriter.writer.close()?;
+    // statswriter.close_parquet();
+    // statswriter.writer.close()?;
     eprintln!();
 
     if args.nodefrag {
