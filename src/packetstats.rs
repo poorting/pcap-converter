@@ -1,4 +1,3 @@
-use core::slice;
 use std::fmt::Debug;
 use anyhow::Error;
 use pcap_parser::data::PacketData;

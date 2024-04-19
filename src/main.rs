@@ -9,7 +9,7 @@ use std::thread::{self, JoinHandle};
 
 use duckdb::Connection;
 
-use crossbeam::channel::unbounded;
+use crossbeam::channel::{bounded, unbounded};
 
 use packetstats::*;
 use statswriter::*;
@@ -67,7 +67,7 @@ fn main() -> Result<()> {
 
     let mut statswriter: StatsWriter = StatsWriter::new(&temp_file, &args.file, args.verbose)?;
     
-    let (pkt_s, pkt_r) = unbounded::<PktMsg>();
+    let (pkt_s, pkt_r) = bounded::<PktMsg>(4_000_000);
     let (stw_s, stw_r) = unbounded::<PacketStats>();
 
     let sw_thread = thread::spawn(move || {
