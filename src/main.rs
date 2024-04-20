@@ -123,7 +123,6 @@ fn main() -> Result<()> {
                     PcapBlockOwned::Legacy(b) => {
                         let frame_time: i64 =
                             i64::from(b.ts_sec) * i64::pow(10, 6) + i64::from(b.ts_usec);
-<<<<<<< HEAD
                         let frame_len: u32 = b.origlen;
                         let pkt_msg = PktMsg {
                             frame_time: frame_time,
@@ -134,19 +133,6 @@ fn main() -> Result<()> {
                             origlen: frame_len,
                         };
                         pkt_s.send(pkt_msg).unwrap();
-=======
-                        packet_stats.frame_time = Some(tsusec);
-                        packet_stats.frame_len = Some(b.origlen);
-                        let pkt_data =
-                            pcap_parser::data::get_packetdata(b.data, linktype, b.caplen as usize)
-                                .context("Legacy PCAP Error get_packetdata")?;
-
-                        // eprintln!("{:?}", pkt_data.clone());
-                        packet_stats.analyze_packet(pkt_data)?;
-                        // pkt_data.clone_into(target)
-                        // statswriter.push(packet_stats);
-                        stw_s.send(packet_stats).unwrap();
->>>>>>> c0552a870559f6234a36bb4d98c8c12fca1e8729
                     }
                     PcapBlockOwned::NG(Block::SectionHeader(ref _shb)) => {
                         if_linktypes = Vec::new();
@@ -161,7 +147,6 @@ fn main() -> Result<()> {
                             i64::from(epb.ts_high) * i64::pow(2, 32) + i64::from(epb.ts_low);
                         let ts_res: i64 =
                             i64::from(ts_pkt) * i64::pow(10, 9 - u32::from(if_tsresol));
-<<<<<<< HEAD
                         let frame_time = ts_res / 1000;
                         let frame_len = epb.caplen;
                         let pkt_msg = PktMsg {
@@ -173,24 +158,10 @@ fn main() -> Result<()> {
                             origlen: frame_len,
                         };
                         pkt_s.send(pkt_msg).unwrap();
-=======
-                        packet_stats.frame_time = Some(ts_res / 1000);
-                        packet_stats.frame_len = Some(epb.caplen);
-                        let pkt_data = pcap_parser::data::get_packetdata(
-                            epb.data,
-                            linktype,
-                            epb.caplen as usize,
-                        )
-                        .context("PCAP-NG EnhancedPacket Error get_packetdata")?;
-                        packet_stats.analyze_packet(pkt_data)?;
-                        // statswriter.push(packet_stats);
-                        stw_s.send(packet_stats).unwrap();
->>>>>>> c0552a870559f6234a36bb4d98c8c12fca1e8729
                     }
                     PcapBlockOwned::NG(Block::SimplePacket(ref spb)) => {
                         assert!(if_linktypes.len() > 0);
                         let linktype = if_linktypes[0];
-<<<<<<< HEAD
                         let blen = spb.block_len1 - 16;
                         let pkt_msg = PktMsg {
                             frame_time: 0,
@@ -201,14 +172,6 @@ fn main() -> Result<()> {
                             origlen: spb.origlen,
                         };
                         pkt_s.send(pkt_msg).unwrap();
-=======
-                        let blen = (spb.block_len1 - 16) as usize;
-                        let pkt_data = pcap_parser::data::get_packetdata(spb.data, linktype, blen)
-                            .context("PCAP-NG SimplePacket Error get_packetdata")?;
-                        packet_stats.analyze_packet(pkt_data)?;
-                        // statswriter.push(packet_stats);
-                        stw_s.send(packet_stats).unwrap();
->>>>>>> c0552a870559f6234a36bb4d98c8c12fca1e8729
                     }
                     PcapBlockOwned::NG(_block) => {
                     }
@@ -231,7 +194,6 @@ fn main() -> Result<()> {
         }
     }
 
-<<<<<<< HEAD
     drop(pkt_s);
 
     for pkt_thread in pkt_threads {
@@ -249,14 +211,6 @@ fn main() -> Result<()> {
     if args.verbose {
         eprintln!();
     }
-=======
-    // statswriter.close_parquet();
-    // statswriter.writer.close()?;
-    drop(stw_s);
-    sw_thread.join().unwrap();
-
-    eprintln!();
->>>>>>> c0552a870559f6234a36bb4d98c8c12fca1e8729
 
     if args.nodefrag {
         // Simply copy the temp file to args.out
