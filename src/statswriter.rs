@@ -39,6 +39,7 @@ impl StatsWriter {
         .build();
     // .set_column_encoding(ColumnPath::from("col1"), Encoding::DELTA_BINARY_PACKED)
     
+        // eprintln!("Trying to open file {}", filename);
         let file = File::create(filename).unwrap();
 
         let writer = ArrowWriter::try_new(file, Arc::new(schema.clone()), Some(props))?;

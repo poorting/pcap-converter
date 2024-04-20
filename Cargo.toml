@@ -11,7 +11,7 @@ clap = { version = "4.5.1", features = ["derive"] }
 etherparse = "0.14.3"
 pcap-parser = { version = "0.15.0", features = ["data"] }
 chrono = "0.4.34"
-domain = "0.9.3"
+domain = "0.9"
 num-format = "0.4.4"
 arrow = "50.0.0"
 parquet = "50.0.0"
