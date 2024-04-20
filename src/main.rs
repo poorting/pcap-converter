@@ -103,15 +103,6 @@ fn main() -> Result<()> {
 
     let mut reader = create_reader(65536*1024 , file)?;
 
-    let (stw_s, stw_r) = unbounded::<PacketStats>();
-    let sw_thread = thread::spawn(move || {
-        for pkt_stats in stw_r.iter() {
-            statswriter.push(pkt_stats);
-        }
-        statswriter.close_parquet();
-        statswriter.writer.close().unwrap();
-    });
-
     loop {
         match reader.next() {
             Ok((offset, block)) => {
