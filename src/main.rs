@@ -90,7 +90,6 @@ fn main() -> Result<()> {
                 let slice = pkt_msg.data;
                 let pkt_data = pcap_parser::data::get_packetdata(&slice, pkt_msg.linktype, pkt_msg.caplen as usize).expect("Error getting packet data");
 
-                // s.send(packet_stats).unwrap();
                 let result = packet_stats.analyze_packet(pkt_data);
                 match result {
                     Ok(_) => s.send(packet_stats).unwrap(),
