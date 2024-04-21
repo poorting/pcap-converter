@@ -12,9 +12,11 @@ use duckdb::Connection;
 use crossbeam::channel::{bounded, unbounded};
 
 use packetstats::*;
+use statscollector::*;
 use statswriter::*;
 
 pub mod packetstats;
+pub mod statscollector;
 pub mod statswriter;
 
 /// Parse a PCAP file and detect whether source IP addresses are spoofed.
@@ -34,7 +36,7 @@ struct Args {
     #[arg(short, long)]
     nodefrag: bool,
     /// Number of processing threads
-    #[arg(short, default_value("2")) ]
+    #[arg(short, default_value("4")) ]
     j: isize,
 }
 
@@ -65,14 +67,15 @@ fn main() -> Result<()> {
     let mut if_linktypes = Vec::new(); // PCAP-NG files
     let mut if_tsresol: u8 = 6;
 
-    let mut statswriter: StatsWriter = StatsWriter::new(&temp_file, &args.file, args.verbose)?;
+    let mut statswriter: StatsWriter = StatsWriter::new(&temp_file,  args.verbose)?;
     
-    let (pkt_s, pkt_r) = bounded::<PktMsg>(4_000_000);
-    let (stw_s, stw_r) = unbounded::<PacketStats>();
+    let (pkt_tx, pkt_rx) = bounded::<PktMsg>(4_000_000);
+    let (stw_tx, stw_rx) = unbounded::<PacketBatch>();
 
     let sw_thread = thread::spawn(move || {
-        for pkt_stats in stw_r.iter() {
-            statswriter.push(pkt_stats);
+        for batch in stw_rx.iter() {
+            // statswriter.push(pkt_stats);
+            statswriter.write_batch(batch);
         }
         statswriter.close_parquet();
         statswriter.writer.close().unwrap();
@@ -80,10 +83,12 @@ fn main() -> Result<()> {
 
     let mut pkt_threads:Vec<JoinHandle<()>> = Vec::new();
     for _ in 0..args.j {
-        let r = pkt_r.clone();
-        let s = stw_s.clone();
+        let rx = pkt_rx.clone();
+        let tx = stw_tx.clone();
+        let pcap_file = args.file.clone();
         let pkt_thread = thread::spawn( move || {
-            for pkt_msg in r.iter() {
+            let mut collector = StatsCollector::new(&pcap_file, tx).unwrap();
+            for pkt_msg in rx.iter() {
                 let mut packet_stats:PacketStats = PacketStats::new();
                 packet_stats.frame_time = Some(pkt_msg.frame_time);
                 packet_stats.frame_len = Some(pkt_msg.frame_len);
@@ -92,10 +97,15 @@ fn main() -> Result<()> {
 
                 let result = packet_stats.analyze_packet(pkt_data);
                 match result {
-                    Ok(_) => s.send(packet_stats).unwrap(),
+                    // Ok(_) => s.send(packet_stats).unwrap(),
+                    Ok(_) => {
+                        collector.push(packet_stats);
+                    },
                     Err(_) => (),
                 }
             }
+            // Send remaining collected packets
+            collector.send_batch();
         });
         pkt_threads.push(pkt_thread);
     }
@@ -122,7 +132,7 @@ fn main() -> Result<()> {
                             linktype: linktype,
                             origlen: frame_len,
                         };
-                        pkt_s.send(pkt_msg).unwrap();
+                        pkt_tx.send(pkt_msg).unwrap();
                     }
                     PcapBlockOwned::NG(Block::SectionHeader(ref _shb)) => {
                         if_linktypes = Vec::new();
@@ -147,7 +157,7 @@ fn main() -> Result<()> {
                             linktype: linktype,
                             origlen: frame_len,
                         };
-                        pkt_s.send(pkt_msg).unwrap();
+                        pkt_tx.send(pkt_msg).unwrap();
                     }
                     PcapBlockOwned::NG(Block::SimplePacket(ref spb)) => {
                         assert!(if_linktypes.len() > 0);
@@ -161,7 +171,7 @@ fn main() -> Result<()> {
                             linktype: linktype,
                             origlen: spb.origlen,
                         };
-                        pkt_s.send(pkt_msg).unwrap();
+                        pkt_tx.send(pkt_msg).unwrap();
                     }
                     PcapBlockOwned::NG(_block) => {
                     }
@@ -184,7 +194,7 @@ fn main() -> Result<()> {
         }
     }
 
-    drop(pkt_s);
+    drop(pkt_tx);
 
     for pkt_thread in pkt_threads {
         match pkt_thread.join() {
@@ -195,7 +205,7 @@ fn main() -> Result<()> {
         }
     }
 
-    drop(stw_s);
+    drop(stw_tx);
     sw_thread.join().unwrap();
 
     if args.verbose {
