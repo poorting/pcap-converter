@@ -110,7 +110,7 @@ fn main() -> Result<()> {
         pkt_threads.push(pkt_thread);
     }
 
-    let mut reader = create_reader(65536*1024 , file)?;
+    let mut reader = create_reader(65536 , file)?;
 
     loop {
         match reader.next() {
