@@ -82,7 +82,7 @@ impl StatsCollector {
 
         self.packets.push(packet);
 
-        if self.packets.len() >= 10_000 {
+        if self.packets.len() >= 100_000 {
             self.send_batch();
         }
 
