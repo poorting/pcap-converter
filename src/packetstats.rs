@@ -6,6 +6,7 @@ use etherparse::icmpv4::TYPE_DEST_UNREACH;
 use std::net::*;
 use domain::base::*;
 // use ntp_parser::*;
+use log::debug;
 
 #[derive(Default, Debug, Clone)]
 pub struct PacketStats {
@@ -106,7 +107,6 @@ fn read_transport(ip_payload: IpPayloadSlice) -> Result<(Option<TransportHeader>
 
 impl PacketStats {
     pub fn new() -> PacketStats {
-        // return Default::default()
         PacketStats { ..Default::default()}
     }
 
@@ -150,8 +150,9 @@ impl PacketStats {
                             self.analyze_packet_headers(pkt_headers);
                     }
 
-                    Err(_slice_error) => {
+                    Err(slice_error) => {
                         // eprintln!("{:?}", slice_error);
+                        debug!("slice error: {}", slice_error);
                         self.errors += 1;
                     }
                 }
@@ -164,8 +165,9 @@ impl PacketStats {
                         self.analyze_packet_headers(pkt_headers);
                     }
 
-                    Err(_slice_error) => {
+                    Err(slice_error) => {
                         // eprintln!("{:?}", slice_error);
+                        debug!("slice error: {}", slice_error);
                         self.errors += 1;
                     }
                 }
@@ -277,8 +279,9 @@ impl PacketStats {
                             }
                         }
 
-                        Err(_e) => {
+                        Err(e) => {
                             // eprintln!("{}", _e);
+                            debug!("DNS message too short: {}", e);
                             self.errors += 1;
                         }
                     }
@@ -301,7 +304,8 @@ impl PacketStats {
                             if (i[0] >> 3) & 0b111 == 2 {
                                 // Yes, simply take the request code from the 4th byte
                                 self.ntp_priv_reqcode = Some(i[3]);
-                        } else {
+                            } else {
+                                debug!("NTP decode error");
                                 self.errors += 1;
                             }
                         },
@@ -348,7 +352,10 @@ impl PacketStats {
                                 _ => (),
                             }
                         }
-                        Err(_) => {self.errors += 1; },
+                        Err(_) => {
+                            debug!("ICMPv4 decode error ({}->{})", self.ip_src.clone().unwrap(), self.ip_dst.clone().unwrap());
+                            self.errors += 1; 
+                        },
                     }
                 }
             }

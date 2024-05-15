@@ -6,10 +6,12 @@ use std::fs::*;
 use rand::distributions::{Alphanumeric, DistString};
 use std::env;
 use std::thread::{self, JoinHandle};
-
 use duckdb::Connection;
-
 use crossbeam::channel::{bounded, unbounded};
+// use log::debug;
+// use log::error;
+use log::info;
+// use log::warn;
 
 use packetstats::*;
 use statscollector::*;
@@ -55,12 +57,15 @@ pub struct PktMsg {
 // ****************************************************************************************************** //
 
 fn main() -> Result<()> {
+    env_logger::init();
+
     let args = Args::parse();
 
     // Create a temporary file for storing first pass parquet file
     let temp_file = format!("{}/pcap-converter-{}.parquet", env::temp_dir().display(), Alphanumeric.sample_string(&mut rand::thread_rng(), 16));
 
     // Open input (pcap) file
+    info!("Opening input file ({})", args.file.clone());
     let file = File::open(&args.file)?;
 
     // pcap is processed in 2+j threads:
@@ -76,14 +81,17 @@ fn main() -> Result<()> {
     // the 2 thread(s) flush the remaining (<10k) info packets to the channel to 3
     // then channel between 2 & 3 is closed, which causes 3 to close the file
     
+    info!("Opening temp output file");
     let mut statswriter: StatsWriter = StatsWriter::new(&temp_file,  args.verbose)?;
     
+    info!("Setting up channels to be used between threads");
     // Channel between 1 & 2 (Single Producer, Multiple Consumers)
     let (pkt_tx, pkt_rx) = bounded::<PktMsg>(4_000_000);
     // Channel between 2 & 3 (Multiple Producers, Single Consumer)
     let (stw_tx, stw_rx) = unbounded::<PacketBatch>();
 
     // Create the StatsWriter thread (3)
+    info!("Creating StatsWriter thread");
     let sw_thread = thread::spawn(move || {
         for batch in stw_rx.iter() {
             statswriter.write_batch(batch);
@@ -93,6 +101,7 @@ fn main() -> Result<()> {
     });
 
     // Create the PacketStats thread(s) (2)
+    info!("Creating the {} threads for analyzing packets", args.j);
     let mut pkt_threads:Vec<JoinHandle<()>> = Vec::new();
     for _ in 0..args.j {
         let rx = pkt_rx.clone();
@@ -126,6 +135,7 @@ fn main() -> Result<()> {
     let mut linktype = Linktype::ETHERNET; // Legacy PCAP files
     let mut if_linktypes = Vec::new(); // PCAP-NG files
     let mut if_tsresol: u8 = 6;
+    info!("Creating PcapReaderIterator for {}", args.file.clone());
     let mut reader = create_reader(65536 , file)?;
 
     loop {
@@ -211,9 +221,11 @@ fn main() -> Result<()> {
     }
 
     // All packets processed, drop first channel between 1 and 2
+    info!("Reading pcap done, dropping channel between reader and analysers");
     drop(pkt_tx);
 
     // Wait till all packetstats (2) threads have finished
+    info!("Waiting for analysers to finish");
     for pkt_thread in pkt_threads {
         match pkt_thread.join() {
             Ok(_) => (),
@@ -224,8 +236,10 @@ fn main() -> Result<()> {
     }
 
     // Drop second channel between 2 and 3
+    info!("Dropping channel between analysers and writer thread");
     drop(stw_tx);
     // Wait for the write thread (3) to finish
+    info!("Waiting for writer thread to finish");
     sw_thread.join().unwrap();
 
     if args.verbose {
@@ -236,10 +250,12 @@ fn main() -> Result<()> {
         // If explicitly requested not to do defragmentation: Simply copy the temp file to args.out
         // Move/rename will not work if moving to another filesystem
         // Which is the default case in Debian
+        info!("No defragmentation requested, copying temp output to final destination");
         fs::copy(&temp_file, &args.out)?;
     } else {
         // Do some smart duckdb wrangling for defragmentation
         // But first determine if it is needed in the first place (>1% fragmentation)
+        info!("Determine if defragmentation is needed");
         let conn = Connection::open_in_memory()?;
         conn.execute(&format!("create view pcap as select * from '{}'", temp_file), [])?;
 
@@ -248,6 +264,7 @@ fn main() -> Result<()> {
 
         if percentage < 1.0 { 
             // Fewer than 1% fragmented packets, don't bother to defragment
+            info!("Fewer than 1% fragmented packets, don't bother to defragment");
             drop(conn);
             if args.verbose {
                 eprintln!("{}% fragmented traffic (<1%), not doing defragmentation", percentage);
@@ -255,6 +272,7 @@ fn main() -> Result<()> {
             fs::copy(&temp_file, &args.out)?;
  
         } else {
+            info!("{}% fragmented traffic. Doing defragmentation", percentage);
             if args.verbose {
                 eprintln!("{}% fragmented traffic. Setting UDP/DNS/NTP info based on first fragment (if available)", percentage);
             }
@@ -266,10 +284,12 @@ fn main() -> Result<()> {
             conn.execute("create view raw as select pcap.* exclude (udp_srcport, udp_dstport, ntp_priv_reqcode, dns_qry_type, dns_qry_name, col_protocol), coalesce(pcap.udp_srcport, ff.udp_srcport) as udp_srcport, coalesce(pcap.udp_dstport, ff.udp_dstport) as udp_dstport, coalesce(pcap.ntp_priv_reqcode,ff.ntp_priv_reqcode) as ntp_priv_reqcode, coalesce(pcap.dns_qry_type, ff.dns_qry_type) as dns_qry_type, coalesce(pcap.dns_qry_name, ff.dns_qry_name) as dns_qry_name, coalesce(pcap.col_protocol, ff.col_protocol) as col_protocol from pcap left join ff using (ip_src,ip_dst, ip_proto, ip_id)", [])?;
 
             // Write out that second (defragmented) view to the output file specified
+            info!("Copying defragmented view to output file");
             conn.execute(&format!("COPY raw to '{}' (format parquet)", args.out), [])?;
         }
     }
 
+    info!("Removing temp file");
     // Remove the temp file
     fs::remove_file(temp_file)?;
 
