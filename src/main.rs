@@ -91,7 +91,7 @@ fn main() -> Result<()> {
     let (stw_tx, stw_rx) = unbounded::<PacketBatch>();
 
     // Create the StatsWriter thread (3)
-    info!("Creating StatsWriter thread");
+    info!("Creating the output writer thread");
     let sw_thread = thread::spawn(move || {
         for batch in stw_rx.iter() {
             statswriter.write_batch(batch);
@@ -138,6 +138,7 @@ fn main() -> Result<()> {
     info!("Creating PcapReaderIterator for {}", args.file.clone());
     let mut reader = create_reader(65536 , file)?;
 
+    info!("Processing packets");
     loop {
         match reader.next() {
             Ok((offset, block)) => {
