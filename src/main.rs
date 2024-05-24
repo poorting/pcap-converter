@@ -21,7 +21,6 @@ pub mod packetstats;
 pub mod statscollector;
 pub mod statswriter;
 
-/// Parse a PCAP file and detect whether source IP addresses are spoofed.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -47,11 +46,9 @@ struct Args {
 pub struct PktMsg {
     pub frame_time: i64,
     pub frame_len: u32,
-    // pub data: &'a [u8],
     pub data: Vec<u8>,
     pub caplen: u32,
     pub linktype: Linktype,
-    pub origlen: u32,
 }
 
 // ****************************************************************************************************** //
@@ -157,7 +154,6 @@ fn main() -> Result<()> {
                             data: b.data.to_owned(),
                             caplen: b.caplen,
                             linktype: linktype,
-                            origlen: frame_len,
                         };
                         pkt_tx.send(pkt_msg).unwrap();
                     }
@@ -182,7 +178,6 @@ fn main() -> Result<()> {
                             data: epb.data.to_owned(),
                             caplen: epb.caplen,
                             linktype: linktype,
-                            origlen: frame_len,
                         };
                         pkt_tx.send(pkt_msg).unwrap();
                     }
@@ -196,7 +191,6 @@ fn main() -> Result<()> {
                             data: spb.data.to_owned(),
                             caplen: blen,
                             linktype: linktype,
-                            origlen: spb.origlen,
                         };
                         pkt_tx.send(pkt_msg).unwrap();
                     }
