@@ -5,8 +5,8 @@ use etherparse::*;
 use etherparse::icmpv4::TYPE_DEST_UNREACH;
 use std::net::*;
 use domain::base::*;
-// use ntp_parser::*;
 use log::debug;
+use serde_json::Value;
 
 #[derive(Default, Debug, Clone)]
 pub struct PacketStats {
@@ -40,6 +40,7 @@ pub struct PacketStats {
     pub http_user_agent: Option<String>,
     pub http_file_data: Option<String>,
     pub ntp_priv_reqcode: Option<u8>,
+    pub dhip_device: Option<String>,
     pub ip_total_len: u16,
     // pub cache_miss: i64,
     pub errors: i64,
@@ -312,6 +313,30 @@ impl PacketStats {
                   
                     }
                 }       
+
+                if udp.source_port == 37810 {
+                    self.col_protocol = Some("DHDiscover".to_string());
+                    // eprintln!("==> {:?}", &transport_payload.slice());
+                    let replace_str = b' ';
+                    let mut result = vec![];
+                    for &b in transport_payload.slice() {
+                        if b < 32 || b > 127{
+                            result.push(replace_str);
+                        } else {
+                            result.push(b);
+                        }
+                    }
+                    // eprintln!("==> {:?}", &result);
+                    let s = match std::str::from_utf8(&result) {
+                        Ok(v) => v,
+                        Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
+                    };
+                    if s.starts_with("    DHIP") {
+                        let device_json = s.get(32..).unwrap();
+                        let v: Value = serde_json::from_str(device_json).unwrap();
+                        self.dhip_device = Some(v["params"]["deviceInfo"]["DeviceType"].to_string());
+                    }
+                }
             }
 
             Some(TransportHeader::Tcp(tcp)) => {

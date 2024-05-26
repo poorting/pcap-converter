@@ -70,6 +70,7 @@ impl StatsCollector {
         fields.push(Field::new("http_user_agent", Utf8, true));
         fields.push(Field::new("http_file_data", Utf8, true));
         fields.push(Field::new("ntp_priv_reqcode", UInt8, true));
+        fields.push(Field::new("dhip_device", Utf8, true));
         fields.push(Field::new("pcap_file", Utf8, true));
     
         fields
@@ -118,6 +119,7 @@ impl StatsCollector {
         let http_user_agent = GenericStringArray::<i32>::from(self.packets.iter().map(|p| p.http_user_agent.clone()).collect::<Vec<Option<String>>>());
         let http_file_data = GenericStringArray::<i32>::from(self.packets.iter().map(|p| p.http_file_data.clone()).collect::<Vec<Option<String>>>());
         let ntp_priv_reqcode = UInt8Array::from(self.packets.iter().map(|p| p.ntp_priv_reqcode).collect::<Vec<Option<u8>>>());
+        let dhip_device = GenericStringArray::<i32>::from(self.packets.iter().map(|p| p.dhip_device.clone()).collect::<Vec<Option<String>>>());
         let pcap_file = GenericStringArray::<i32>::from(vec![self.pcap_file.clone(); self.packets.len()]);
         
 
@@ -153,6 +155,7 @@ impl StatsCollector {
                 Arc::new(http_user_agent),
                 Arc::new(http_file_data),
                 Arc::new(ntp_priv_reqcode),
+                Arc::new(dhip_device),
                 Arc::new(pcap_file),
                 ]
         ).unwrap();
